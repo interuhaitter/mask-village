@@ -1,0 +1,3176 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mask Village</title>
+<style>
+  :root {
+    --bg: #11151d;
+    --card: #1b222e;
+    --text: #eef2f7;
+    --muted: #8e9aaf;
+    --g: #2ea043;
+    --r: #da3633;
+    --b: #388bfd;
+    --accent: #f0883e;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); padding:10px; transition: background 0.9s ease, color 0.4s ease; }
+  body.in-game {
+    padding: 6px;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+    position: relative;
+  }
+  /* 昼は青空・白い雲・明るい草原の背景 */
+  body.in-game.is-day {
+    background: linear-gradient(180deg, #7dd3fc 0%, #bae6fd 35%, #e0f2fe 68%, #dcfce7 100%);
+    color: #0f172a;
+  }
+  /* 夜は深い夜空の背景 */
+  body.in-game.is-night {
+    background: linear-gradient(180deg, #040711 0%, #0b1126 55%, #111827 100%);
+    color: #eef2f7;
+  }
+
+  /* 昼の太陽＆雲、夜の月＆星空 */
+  .sky-backdrop {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+  }
+  .sky-sun {
+    position: absolute;
+    top: 38px;
+    right: 6%;
+    width: 74px;
+    height: 74px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #fef08a 0%, #facc15 65%, rgba(250, 204, 21, 0) 100%);
+    box-shadow: 0 0 42px rgba(253, 224, 71, 0.85);
+    animation: pulseCelestial 4s ease-in-out infinite alternate;
+  }
+  .sky-cloud {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.88);
+    border-radius: 50px;
+    filter: drop-shadow(0 4px 10px rgba(14, 116, 144, 0.12));
+  }
+  .sky-cloud::before, .sky-cloud::after {
+    content: '';
+    position: absolute;
+    background: inherit;
+    border-radius: 50%;
+  }
+  .cloud-1 { width: 130px; height: 40px; top: 56px; left: 8%; animation: driftCloud 36s linear infinite; }
+  .cloud-1::before { width: 56px; height: 56px; top: -26px; left: 18px; }
+  .cloud-1::after { width: 44px; height: 44px; top: -18px; left: 62px; }
+  .cloud-2 { width: 105px; height: 32px; top: 112px; left: 68%; opacity: 0.78; animation: driftCloud 48s linear infinite reverse; }
+  .cloud-2::before { width: 46px; height: 46px; top: -22px; left: 14px; }
+  .cloud-2::after { width: 36px; height: 36px; top: -15px; left: 50px; }
+
+  .sky-moon {
+    position: absolute;
+    top: 44px;
+    right: 7%;
+    width: 66px;
+    height: 66px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #fef9c3 0%, #fde047 65%, #eab308 100%);
+    box-shadow: 0 0 36px rgba(253, 224, 71, 0.65);
+    animation: pulseCelestial 4.5s ease-in-out infinite alternate;
+  }
+  .sky-moon-crater {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(202, 138, 4, 0.25);
+  }
+  .sky-star {
+    position: absolute;
+    background: #ffffff;
+    border-radius: 50%;
+    box-shadow: 0 0 6px #fff;
+    animation: twinkleStar 2.6s ease-in-out infinite alternate;
+  }
+  @keyframes pulseCelestial {
+    from { transform: scale(1); }
+    to { transform: scale(1.06); }
+  }
+  @keyframes driftCloud {
+    0% { transform: translateX(-12px); }
+    50% { transform: translateX(22px); }
+    100% { transform: translateX(-12px); }
+  }
+  @keyframes twinkleStar {
+    from { opacity: 0.25; transform: scale(0.8); }
+    to { opacity: 1; transform: scale(1.2); }
+  }
+
+  .container { max-width: 780px; margin: 0 auto; width: 100%; position: relative; z-index: 2; }
+  body.in-game .container {
+    max-width: 100%;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  h1, h2, h3 { margin: 0 0 10px; }
+  .card { background:var(--card); border-radius:12px; padding:14px; margin-bottom:14px; border:1px solid #2d3646; }
+  input, select, button { font-size: 14px; padding: 8px 12px; border-radius: 8px; border: 1px solid #354052; background: #0e1219; color: var(--text); }
+  button { cursor: pointer; background: #238636; border-color: #2ea043; font-weight: bold; transition: transform 0.08s, opacity 0.15s; }
+  button:active:not(:disabled) { transform: scale(0.96); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.secondary { background: #242c3a; border-color: #3a4659; color: #f8fafc; }
+  button.danger { background: #b62324; border-color: #da3633; color: #fff; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }
+  .badge { display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:12px; font-size:12px; font-weight:bold; }
+  .c-g { background: rgba(46,160,67,0.22); color: #56d364; border: 1px solid var(--g); }
+  .c-r { background: rgba(218,54,51,0.22); color: #ff7b72; border: 1px solid var(--r); }
+  .c-b { background: rgba(56,139,253,0.22); color: #79c0ff; border: 1px solid var(--b); }
+  .c-u { background: rgba(251,191,36,0.22); color: #fbbf24; border: 1px solid #fbbf24; }
+  body.is-day .c-g { background: rgba(46,160,67,0.16); color: #166534; }
+  body.is-day .c-r { background: rgba(218,54,51,0.16); color: #991b1b; }
+  body.is-day .c-b { background: rgba(56,139,253,0.16); color: #1e40af; }
+  body.is-day .c-u { background: rgba(251,191,36,0.2); color: #92400e; }
+  .error { color: #ff7b72; font-size: 13px; margin-top: 6px; }
+  .hidden { display: none !important; }
+
+  /* 役職能力説明ツールチップ（ホバー＆クリック共通） */
+  .role-tooltip {
+    position: fixed;
+    z-index: 300;
+    width: 260px;
+    max-width: calc(100vw - 24px);
+    background: rgba(15, 23, 42, 0.96);
+    backdrop-filter: blur(8px);
+    border: 2px solid #475569;
+    border-radius: 12px;
+    padding: 10px 12px;
+    color: #f8fafc;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.72);
+    pointer-events: auto;
+    animation: popTooltip 0.14s ease-out forwards;
+  }
+  .role-tooltip.camp-g { border-color: #2ea043; }
+  .role-tooltip.camp-r { border-color: #da3633; }
+  .role-tooltip.camp-b { border-color: #388bfd; }
+  .role-tooltip.camp-u { border-color: #fbbf24; }
+  .role-tooltip-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .role-tooltip-title {
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1.2;
+  }
+  .role-tooltip-desc {
+    font-size: 12px;
+    line-height: 1.45;
+    color: #cbd5e1;
+  }
+  @keyframes popTooltip {
+    from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* ゲーム開始時の役職ポップアップオーバーレイ */
+  .role-reveal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(8, 11, 18, 0.88);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    padding: 20px;
+  }
+  .role-reveal-card {
+    background: linear-gradient(160deg, #1e2636, #111622);
+    border: 3px solid #64748b;
+    border-radius: 24px;
+    padding: 28px 32px;
+    text-align: center;
+    max-width: 380px;
+    width: 100%;
+    color: #eef2f7;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85);
+    animation: popRoleReveal 0.8s cubic-bezier(0.18, 1.35, 0.4, 1) forwards;
+  }
+  .role-reveal-card.camp-g { border-color: #2ea043; box-shadow: 0 0 40px rgba(46, 160, 67, 0.45); }
+  .role-reveal-card.camp-r { border-color: #da3633; box-shadow: 0 0 40px rgba(218, 54, 51, 0.45); }
+  .role-reveal-card.camp-b { border-color: #388bfd; box-shadow: 0 0 40px rgba(56, 139, 253, 0.45); }
+  .role-reveal-lead {
+    font-size: 18px;
+    font-weight: 800;
+    color: #cbd5e1;
+    letter-spacing: 0.08em;
+    margin-bottom: 14px;
+  }
+  .role-reveal-char { margin: 6px auto 16px; }
+  .role-reveal-role-row {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .role-reveal-name {
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+  }
+  .role-reveal-name.camp-g { color: #56d364; }
+  .role-reveal-name.camp-r { color: #ff7b72; }
+  .role-reveal-name.camp-b { color: #79c0ff; }
+  @keyframes popRoleReveal {
+    0% { opacity: 0; transform: scale(0.45) translateY(24px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+  }
+
+  /* 画面右下フローティング統合ログ */
+  .floating-log-panel {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    width: 310px;
+    max-width: calc(100vw - 24px);
+    background: rgba(16, 21, 30, 0.92);
+    backdrop-filter: blur(6px);
+    border: 1px solid #354154;
+    border-radius: 12px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    z-index: 65;
+    overflow: hidden;
+    color: #eef2f7;
+  }
+  .floating-log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: rgba(27, 34, 46, 0.96);
+    border-bottom: 1px solid #2d3646;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  .floating-log-panel.collapsed .log-box { display: none; }
+  .log-box {
+    max-height: 210px;
+    overflow-y: auto;
+    background: transparent;
+    padding: 7px 8px;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .log-entry {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 4px 7px;
+    background: rgba(20, 26, 36, 0.9);
+    border: 1px solid #252e3d;
+    border-radius: 8px;
+  }
+  .log-entry.is-private {
+    border-left: 3px solid #fbbf24;
+    background: rgba(34, 30, 20, 0.88);
+  }
+  .log-day-tag {
+    font-size: 10px;
+    font-weight: 800;
+    color: #94a3b8;
+    background: #1e2636;
+    padding: 2px 5px;
+    border-radius: 5px;
+    flex-shrink: 0;
+  }
+  .log-priv-tag { font-size: 10px; flex-shrink: 0; }
+  .log-icons-row { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+  .log-char-chip {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    background: #0e1219;
+    border: 1px solid #2d3748;
+    border-radius: 7px;
+    padding: 2px 4px;
+    min-width: 36px;
+  }
+  .log-char-chip span {
+    font-size: 9px;
+    font-weight: bold;
+    max-width: 50px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.1;
+  }
+  .log-sym-badge {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(145deg, #1b1f27, #0e1116);
+    border: 2px solid #64748b;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+
+  /* ロビー参加者リスト */
+  .lobby-user-list { display: flex; flex-direction: column; gap: 6px; }
+  .lobby-user-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #121722;
+    border: 1px solid #2d3646;
+    border-radius: 10px;
+    padding: 6px 10px;
+  }
+  .lobby-user-actions { display: flex; gap: 6px; }
+  .lobby-user-actions button { padding: 4px 8px; font-size: 11px; }
+
+  /* 13色カラーピッカー */
+  .color-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .color-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 6px 4px;
+    border-radius: 10px;
+    background: #0e1219;
+    border: 2px solid #2d3646;
+    cursor: pointer;
+    position: relative;
+    transition: transform 0.1s, border-color 0.15s;
+  }
+  .color-chip:hover:not(.taken) { transform: translateY(-2px); border-color: #64748b; }
+  .color-chip.selected { border-color: #fbbf24; background: #1e2636; box-shadow: 0 0 10px rgba(251,191,36,0.35); }
+  .color-chip.taken { opacity: 0.35; cursor: not-allowed; }
+  .color-chip span { font-size: 11px; margin-top: 2px; font-weight: bold; }
+
+  /* 四角い役職アイコン（中身白黒・枠が陣営色） */
+  .role-sq-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: linear-gradient(145deg, #1b1f27, #0e1116);
+    color: #f8fafc;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.45);
+    position: relative;
+  }
+  .role-sq-icon.xs { width: 20px; height: 20px; border-radius: 5px; border-width: 1.8px; }
+  .role-sq-icon.sm { width: 26px; height: 26px; border-radius: 7px; }
+  .role-sq-icon.lg { width: 68px; height: 68px; border-radius: 16px; border-width: 3.5px; }
+  .role-sq-icon.camp-g { border: 2.5px solid #2ea043; }
+  .role-sq-icon.camp-r { border: 2.5px solid #da3633; }
+  .role-sq-icon.camp-b { border: 2.5px solid #388bfd; }
+  .role-sq-icon.camp-u { border: 2.5px solid #fbbf24; }
+  .role-sq-icon.camp-n { border: 2.5px solid #64748b; }
+  .role-sq-icon.xs.camp-g,
+  .role-sq-icon.xs.camp-r,
+  .role-sq-icon.xs.camp-b,
+  .role-sq-icon.xs.camp-u,
+  .role-sq-icon.xs.camp-n { border-width: 1.8px; }
+  .role-sq-icon.is-mine-slot {
+    box-shadow: 0 0 0 2px #fbbf24, 0 0 10px rgba(251, 191, 36, 0.75);
+  }
+
+  /* ゲーム画面上部コンパクトヘッダー */
+  .game-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 5px 10px;
+    background: rgba(20, 26, 36, 0.92);
+    border: 1px solid #2d3646;
+    border-radius: 10px;
+    margin-bottom: 6px;
+    transition: background 0.5s ease, border-color 0.5s ease;
+    position: relative;
+    z-index: 30;
+  }
+  body.is-day .game-top-bar {
+    background: rgba(255, 255, 255, 0.92);
+    border-color: #cbd5e1;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  }
+  .role-bar-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .role-bar-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    transition: transform 0.12s ease;
+  }
+  .role-bar-item:hover {
+    transform: translateY(-2px) scale(1.08);
+  }
+  .role-bar-me-tag {
+    font-size: 8px;
+    font-weight: bold;
+    color: #d97706;
+    margin-top: 1px;
+    line-height: 1;
+  }
+
+  /* ロビー役職リスト（まとめ表示） */
+  .role-group-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #121722;
+    border: 1px solid #2d3646;
+    border-radius: 10px;
+    padding: 6px 10px;
+    margin-bottom: 6px;
+  }
+  .role-group-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+  }
+  .role-count-tag { font-size: 15px; font-weight: 800; color: #fbbf24; margin-left: 2px; }
+  .role-group-btns { display: flex; gap: 6px; }
+  .role-group-btns button { padding: 4px 11px; font-size: 15px; }
+
+  /* 楕円ビレッジエリア（立体配置＆カメラズーム対応） */
+  .village-stage {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    overflow: hidden;
+    padding: 4px;
+  }
+  .village-wrap {
+    position: relative;
+    width: min(95vw, 1120px);
+    height: min(74dvh, 660px);
+    margin: 0 auto;
+    background: radial-gradient(ellipse at center, #ffffff 0%, #f8fafc 58%, #dcfce7 100%);
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.95);
+    box-shadow: inset 0 0 36px rgba(148, 163, 184, 0.25), 0 14px 36px rgba(15, 23, 42, 0.12);
+    user-select: none;
+    overflow: hidden;
+    transition: transform 1.2s cubic-bezier(0.22, 1, 0.36, 1), background 0.8s ease, border-color 0.8s ease;
+    transform-origin: center center;
+  }
+  .village-wrap.night-mode {
+    background: radial-gradient(ellipse at center, #181c36 0%, #0d1022 60%, #060711 100%);
+    border-color: #3b3f6b;
+    box-shadow: inset 0 0 54px rgba(0, 0, 0, 0.85);
+  }
+  .plaza-ring {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 54%; height: 52%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    border: 1.5px dashed rgba(15, 23, 42, 0.14);
+    pointer-events: none;
+  }
+  .village-wrap.night-mode .plaza-ring {
+    border-color: rgba(148, 163, 184, 0.22);
+  }
+
+  /* 決着時のシーン遷移オーバーレイ */
+  .finish-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 14, 22, 0.82);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 60;
+    animation: fadeInScene 0.7s ease forwards;
+  }
+  .finish-overlay h2 {
+    font-size: 30px;
+    color: #fbbf24;
+    text-shadow: 0 2px 14px rgba(251, 191, 36, 0.7);
+    margin: 0 0 8px;
+  }
+
+  /* 中央広場（ステータス＆全体行動） */
+  .village-center {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 24%;
+    min-width: 132px;
+    background: rgba(255, 255, 255, 0.92);
+    color: #0f172a;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 16px;
+    padding: 8px;
+    text-align: center;
+    z-index: 20;
+    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.14);
+    transition: background 0.5s ease, color 0.5s ease, border-color 0.5s ease, opacity 0.4s ease;
+  }
+  .village-wrap.night-mode .village-center {
+    background: rgba(18, 24, 34, 0.92);
+    color: #eef2f7;
+    border-color: #384457;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+  }
+  .village-center.dimmed-center {
+    opacity: 0.22;
+    pointer-events: none;
+  }
+  .phase-label { font-size: 15px; font-weight: 800; margin-bottom: 2px; }
+  .progress-label { font-size: 11px; color: #64748b; margin-bottom: 4px; }
+  .village-wrap.night-mode .progress-label { color: #8e9aaf; }
+  .skip-count-pill {
+    display: inline-block;
+    background: #e2e8f0;
+    border: 1px solid #94a3b8;
+    border-radius: 10px;
+    padding: 1px 8px;
+    font-size: 11px;
+    font-weight: bold;
+    color: #1e293b;
+    margin-bottom: 4px;
+  }
+  .village-wrap.night-mode .skip-count-pill {
+    background: #1e293b;
+    border-color: #475569;
+    color: #cbd5e1;
+  }
+  .center-actions { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
+  .center-actions button { padding: 5px 6px; font-size: 11px; width: 100%; }
+
+  /* 立体配置された家ノード */
+  .house-node {
+    position: absolute;
+    transform: translate(-50%, -50%) scale(var(--depth-scale, 1));
+    width: 96px;
+    text-align: center;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+  }
+  .house-node:hover {
+    transform: translate(-50%, -50%) scale(calc(var(--depth-scale, 1) * 1.07));
+    z-index: 38 !important;
+  }
+  .house-node.dead { opacity: 0.85; }
+  .house-node.selected-target .house-body {
+    box-shadow: 0 0 0 3px var(--accent), 0 0 16px var(--accent);
+  }
+
+  .vote-pill {
+    display: inline-block;
+    background: #e2e8f0;
+    color: #1e293b;
+    border: 1px solid #94a3b8;
+    border-radius: 12px;
+    padding: 1px 7px;
+    font-size: 11px;
+    font-weight: bold;
+    margin-bottom: 2px;
+  }
+  .village-wrap.night-mode .vote-pill {
+    background: #242d3d;
+    color: #cbd5e1;
+    border-color: #475569;
+  }
+  .vote-pill.has-votes {
+    background: #d97706 !important;
+    color: #fff !important;
+    border-color: #fbbf24 !important;
+    box-shadow: 0 2px 6px rgba(217, 119, 6, 0.5);
+  }
+
+  /* 立体的な家のグラフィック */
+  .house-graphic {
+    position: relative;
+    width: 62px;
+    height: 52px;
+    margin: 0 auto;
+  }
+  .house-ground-shadow {
+    position: absolute;
+    bottom: -3px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 64px;
+    height: 14px;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.2);
+    filter: blur(2px);
+  }
+  .village-wrap.night-mode .house-ground-shadow {
+    background: rgba(0, 0, 0, 0.55);
+  }
+  .house-roof {
+    width: 0; height: 0;
+    border-left: 34px solid transparent;
+    border-right: 34px solid transparent;
+    border-bottom: 21px solid #64748b;
+    margin: 0 auto;
+    position: relative;
+    left: -3px;
+    filter: drop-shadow(0 3px 2px rgba(0,0,0,0.28));
+    transition: transform 0.5s ease, border-bottom-color 0.5s ease;
+  }
+  .house-body {
+    width: 50px;
+    height: 30px;
+    background: linear-gradient(135deg, #3b485e 0%, #263040 60%, #1b222e 100%);
+    border: 1.5px solid #475569;
+    border-top: none;
+    margin: 0 auto;
+    border-radius: 0 0 8px 8px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    position: relative;
+    box-shadow: inset -6px 0 8px rgba(0,0,0,0.3);
+  }
+  .house-door {
+    width: 13px;
+    height: 18px;
+    background: #0f172a;
+    border-radius: 5px 5px 0 0;
+    border: 1px solid #64748b;
+    border-bottom: none;
+  }
+  .house-icon-overlay {
+    position: absolute;
+    top: -8px;
+    right: -10px;
+    font-size: 16px;
+    filter: drop-shadow(0 1px 2px #000);
+  }
+
+  /* ボマーに爆破されたボロボロの家 */
+  .house-node.bombed .house-roof {
+    border-bottom-color: #27272a !important;
+    transform: rotate(-11deg) translateY(3px);
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.65));
+  }
+  .house-node.bombed .house-body {
+    background: linear-gradient(135deg, #27272a 0%, #18181b 65%, #09090b 100%);
+    border-color: #52525b;
+    border-style: dashed;
+  }
+  .house-node.bombed .house-door {
+    transform: rotate(18deg) translate(2px, 2px);
+    background: #000;
+    border-color: #3f3f46;
+  }
+  .house-crack-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  .house-smoke {
+    position: absolute;
+    top: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 14px;
+    pointer-events: none;
+    animation: riseSmoke 2.2s ease-in-out infinite;
+  }
+  @keyframes riseSmoke {
+    0% { opacity: 0.2; transform: translate(-50%, 4px) scale(0.8); }
+    50% { opacity: 0.85; transform: translate(-45%, -6px) scale(1.1); }
+    100% { opacity: 0; transform: translate(-55%, -16px) scale(1.3); }
+  }
+
+  .house-name {
+    margin-top: 2px;
+    font-size: 11px;
+    font-weight: bold;
+    background: rgba(255, 255, 255, 0.92);
+    color: #0f172a;
+    padding: 1px 6px;
+    border-radius: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border: 1px solid #cbd5e1;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  }
+  .village-wrap.night-mode .house-name {
+    background: rgba(13, 17, 23, 0.88);
+    color: #eef2f7;
+    border-color: #2d3748;
+  }
+  .house-node.is-me .house-name { border-color: #16a34a; color: #15803d; }
+  .village-wrap.night-mode .house-node.is-me .house-name { border-color: var(--g); color: #7ee787; }
+  .house-node.is-mate .house-name { border-color: #dc2626; color: #b91c1c; }
+  .village-wrap.night-mode .house-node.is-mate .house-name { border-color: var(--r); color: #ffa198; }
+  .house-sub { font-size: 10px; color: #475569; font-weight: bold; line-height: 1.15; margin-top: 1px; }
+  .village-wrap.night-mode .house-sub { color: var(--muted); }
+
+  /* インベスティゲーターが調べた結果アイコン（家の下に常設表示） */
+  .house-inv-results {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    margin-top: 3px;
+    padding: 2px 4px;
+    border-radius: 7px;
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid #475569;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  }
+
+  /* 大きなキャラクタースプライト（歩行モーション＆入退室） */
+  .char-node {
+    position: absolute;
+    transform: translate(-50%, -50%) scale(var(--depth-scale, 1));
+    width: 62px;
+    text-align: center;
+    cursor: pointer;
+    transition: left 3.1s cubic-bezier(0.25, 0.08, 0.35, 0.98),
+                top 3.1s cubic-bezier(0.25, 0.08, 0.35, 0.98),
+                opacity 0.45s ease,
+                transform 0.45s ease;
+  }
+  /* 家に入るとき（昼→夜）：玄関にたどり着いてからドアの中へ小さく吸い込まれて消える */
+  .char-node.entering-house {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.26);
+    pointer-events: none;
+    transition: left 3.0s cubic-bezier(0.25, 0.08, 0.35, 0.98) 0s,
+                top 3.0s cubic-bezier(0.25, 0.08, 0.35, 0.98) 0s,
+                opacity 0.4s ease 2.95s,
+                transform 0.4s ease 2.95s;
+  }
+  /* 夜の行動で訪問先の家の中に入るとき（キル・ドクター訪問など） */
+  .char-node.night-entering-door {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.26);
+    pointer-events: none;
+    transition: left 0.65s ease-in 0s,
+                top 0.65s ease-in 0s,
+                opacity 0.4s ease 0.25s,
+                transform 0.65s ease-in 0s !important;
+    z-index: 44 !important;
+  }
+  /* 夜の行動で帰宅するとき：ゆっくり歩いてからドアの中へ入る */
+  .char-node.night-returning {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.26);
+    pointer-events: none;
+    transition: left 2.2s cubic-bezier(0.25, 0.08, 0.35, 0.98) 0s,
+                top 2.2s cubic-bezier(0.25, 0.08, 0.35, 0.98) 0s,
+                opacity 0.4s ease 1.85s,
+                transform 0.4s ease 1.85s !important;
+    z-index: 44 !important;
+  }
+  /* 夜の歩行・アクション移動用トランジション（ゆっくり確実に歩く） */
+  .char-node.night-acting {
+    opacity: 1;
+    transition: left 3.0s cubic-bezier(0.25, 0.08, 0.38, 0.98),
+                top 3.0s cubic-bezier(0.25, 0.08, 0.38, 0.98),
+                opacity 0.35s ease,
+                transform 0.45s ease !important;
+    z-index: 44 !important;
+  }
+  /* ポリス成功時に相手が家のドアから手前に出てくる短い歩行 */
+  .char-node.night-step-out {
+    opacity: 1;
+    transition: left 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+                top 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+                opacity 0.3s ease,
+                transform 0.45s ease !important;
+    z-index: 45 !important;
+  }
+
+  /* 進行方向に合わせた向き反転＆足踏み歩行アニメーション */
+  .char-sprite {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform-origin: center bottom;
+    transform: scaleX(var(--facing, 1));
+    transition: transform 0.25s ease, filter 0.55s ease;
+  }
+  .char-node.is-walking .char-body-group {
+    animation: walkBodyBob 0.22s ease-in-out infinite alternate;
+    transform-origin: 32px 46px;
+  }
+  .char-node.is-walking .char-foot-l {
+    animation: walkFootLeft 0.44s ease-in-out infinite;
+    transform-origin: 24px 56px;
+  }
+  .char-node.is-walking .char-foot-r {
+    animation: walkFootRight 0.44s ease-in-out infinite;
+    transform-origin: 40px 56px;
+  }
+  @keyframes walkBodyBob {
+    0% { transform: translateY(0px) rotate(-3deg); }
+    100% { transform: translateY(-4.5px) rotate(4deg); }
+  }
+  @keyframes walkFootLeft {
+    0%   { transform: translate(-3px, -5px) rotate(-18deg); }
+    50%  { transform: translate(4px, 0px) rotate(12deg); }
+    100% { transform: translate(-3px, -5px) rotate(-18deg); }
+  }
+  @keyframes walkFootRight {
+    0%   { transform: translate(4px, 0px) rotate(12deg); }
+    50%  { transform: translate(-3px, -5px) rotate(-18deg); }
+    100% { transform: translate(4px, 0px) rotate(12deg); }
+  }
+
+  .char-node.inside-house {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.26);
+    pointer-events: none;
+  }
+  .char-node.is-dead {
+    cursor: default;
+  }
+  .char-node.is-dead:not(.is-ash) .char-sprite {
+    transform: rotate(90deg);
+    filter: grayscale(0.45) brightness(0.75);
+  }
+  .char-node.is-dead .char-tag { display: none; }
+  .char-tag {
+    font-size: 10px;
+    font-weight: 800;
+    background: rgba(15, 23, 42, 0.86);
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 5px;
+    white-space: nowrap;
+    max-width: 74px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: -3px auto 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+  }
+
+  /* 追放時の3段階演出（7.4s）：真ん中に行く → 役職表示 → 完全に村の外へ吹っ飛ぶ */
+  .char-node.exile-anim {
+    z-index: 46 !important;
+    pointer-events: none;
+    animation: exileThreeStep 7.4s cubic-bezier(0.25, 0.9, 0.35, 1) forwards !important;
+  }
+  @keyframes exileThreeStep {
+    0% {
+      left: var(--sx);
+      top: var(--sy);
+      transform: translate(-50%, -50%) scale(1.1) rotate(0deg);
+      opacity: 1;
+    }
+    24% {
+      left: 50%;
+      top: 52%;
+      transform: translate(-50%, -50%) scale(1.34) rotate(0deg);
+      opacity: 1;
+    }
+    68% {
+      left: 50%;
+      top: 52%;
+      transform: translate(-50%, -50%) scale(1.34) rotate(0deg);
+      opacity: 1;
+    }
+    75% {
+      left: 50%;
+      top: 52%;
+      transform: translate(-50%, -50%) scale(1.34) rotate(-25deg);
+      opacity: 1;
+    }
+    100% {
+      left: 135%;
+      top: -35%;
+      transform: translate(-50%, -50%) scale(0.25) rotate(1260deg);
+      opacity: 0;
+    }
+  }
+
+  /* 追放時に中央で役職アイコンと名前を表示するポップアップ */
+  .exile-role-popup {
+    position: absolute;
+    left: 50%;
+    top: 32%;
+    transform: translate(-50%, -50%);
+    background: rgba(15, 23, 42, 0.94);
+    border: 2.5px solid #fbbf24;
+    border-radius: 16px;
+    padding: 10px 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    color: #f8fafc;
+    z-index: 48;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    pointer-events: none;
+    animation: exilePopupFade 7.4s ease forwards;
+  }
+  @keyframes exilePopupFade {
+    0%, 21% { opacity: 0; transform: translate(-50%, -40%) scale(0.6); }
+    28%, 68% { opacity: 1; transform: translate(-50%, -50%) scale(1.06); }
+    76%, 100% { opacity: 0; transform: translate(-50%, -60%) scale(0.8); }
+  }
+
+  /* 朝の死体発見ズーム後の役職ポップアップ（4.6s） */
+  .death-reveal-popup {
+    position: absolute;
+    transform: translate(-50%, -125%);
+    background: rgba(15, 23, 42, 0.95);
+    border: 2.5px solid #da3633;
+    border-radius: 14px;
+    padding: 8px 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: #f8fafc;
+    z-index: 50;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.75);
+    pointer-events: none;
+    animation: popDeathRole 4.6s ease forwards;
+  }
+  @keyframes popDeathRole {
+    0%, 22% { opacity: 0; transform: translate(-50%, -105%) scale(0.5); }
+    34%, 88% { opacity: 1; transform: translate(-50%, -128%) scale(1.06); }
+    100% { opacity: 0; transform: translate(-50%, -138%) scale(0.9); }
+  }
+
+  /* 朝のねずみ指さしオーバーレイ */
+  .rat-point-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 47;
+  }
+  .rat-point-line {
+    stroke: #ef4444;
+    stroke-width: 1.4;
+    stroke-dasharray: 2.5 1.8;
+    animation: dashFlow 0.7s linear infinite;
+  }
+  @keyframes dashFlow {
+    to { stroke-dashoffset: -8.6; }
+  }
+  .rat-point-hand {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    font-size: 34px;
+    z-index: 49;
+    filter: drop-shadow(0 3px 6px rgba(0,0,0,0.45));
+    animation: pointPulse 0.55s ease-in-out infinite alternate;
+    pointer-events: none;
+  }
+  @keyframes pointPulse {
+    from { transform: translate(-50%, -50%) scale(0.95); }
+    to { transform: translate(-50%, -50%) scale(1.25); }
+  }
+
+  /* トラッカーの足跡トレイル */
+  .tracker-footprint {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    font-size: 18px;
+    z-index: 47;
+    pointer-events: none;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.75));
+    animation: popFootprint 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) backwards;
+  }
+  @keyframes popFootprint {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.3); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+
+  /* ボマー爆破の巨大爆発エフェクト */
+  .bomb-blast-fx {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    z-index: 52;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    animation: bombBlastAnim 2.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .bomb-blast-fire {
+    font-size: 62px;
+    line-height: 1;
+    filter: drop-shadow(0 0 22px #f97316) drop-shadow(0 0 38px #ef4444);
+  }
+  @keyframes bombBlastAnim {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
+    20% { opacity: 1; transform: translate(-50%, -50%) scale(1.35); }
+    45% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+    85% { opacity: 1; transform: translate(-50%, -55%) scale(1.2); }
+    100% { opacity: 0; transform: translate(-50%, -65%) scale(0.9); }
+  }
+
+  /* 夜の役職行動モーション用フローティングエフェクト（アイコンのみ） */
+  .night-motion-fx {
+    position: absolute;
+    transform: translate(-50%, -115%);
+    z-index: 48;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    animation: popMotionFx 2.2s ease forwards;
+  }
+  .night-motion-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(15, 23, 42, 0.94);
+    border: 2px solid #fbbf24;
+    border-radius: 12px;
+    padding: 5px 8px;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 800;
+    white-space: nowrap;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.75);
+  }
+  /* サバイバーの盾が割れるアニメーション */
+  .shield-break-wrap {
+    position: relative;
+    width: 68px;
+    height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .shield-half-left {
+    animation: breakLeft 1.9s cubic-bezier(0.2, 0.85, 0.3, 1) forwards;
+    transform-origin: center center;
+  }
+  .shield-half-right {
+    animation: breakRight 1.9s cubic-bezier(0.2, 0.85, 0.3, 1) forwards;
+    transform-origin: center center;
+  }
+  @keyframes breakLeft {
+    0% { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; }
+    35% { transform: translate(0, 0) rotate(0deg) scale(1.15); opacity: 1; }
+    100% { transform: translate(-22px, 16px) rotate(-36deg) scale(0.8); opacity: 0; }
+  }
+  @keyframes breakRight {
+    0% { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; }
+    35% { transform: translate(0, 0) rotate(0deg) scale(1.15); opacity: 1; }
+    100% { transform: translate(22px, 16px) rotate(36deg) scale(0.8); opacity: 0; }
+  }
+  @keyframes popMotionFx {
+    0% { opacity: 0; transform: translate(-50%, -85%) scale(0.5); }
+    16% { opacity: 1; transform: translate(-50%, -118%) scale(1.08); }
+    86% { opacity: 1; transform: translate(-50%, -122%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -132%) scale(0.88); }
+  }
+
+  /* リザルト画面 */
+  .result-screen { animation: fadeInScene 0.6s ease forwards; }
+  .result-banner {
+    text-align: center;
+    background: linear-gradient(145deg, #232c3d, #161d29);
+    border: 2px solid #fbbf24;
+    border-radius: 14px;
+    padding: 18px 14px;
+    margin-bottom: 14px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+  }
+  .result-banner h2 { color: #fbbf24; font-size: 22px; margin: 0 0 6px; }
+  .result-list { display: flex; flex-direction: column; gap: 8px; }
+  .result-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: #121722;
+    border: 1px solid #2d3646;
+    border-radius: 10px;
+    padding: 8px 12px;
+  }
+  .result-row.is-winner {
+    border-color: #fbbf24;
+    background: linear-gradient(90deg, rgba(251, 191, 36, 0.14), #121722);
+  }
+  .result-player-left { display: flex; align-items: center; gap: 10px; }
+  .result-name { font-size: 15px; font-weight: bold; }
+  .result-role-box {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: bold;
+    padding: 4px 8px;
+    border-radius: 8px;
+    background: #1e2636;
+    border: 1px solid #3a4659;
+  }
+
+  @keyframes fadeInScene {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* モーダル */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.68);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 16px;
+  }
+  .modal-card {
+    background: #1c2432;
+    border: 1px solid #475569;
+    border-radius: 14px;
+    padding: 18px;
+    width: 100%;
+    max-width: 380px;
+    color: #eef2f7;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.7);
+  }
+  .modal-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 12px 0;
+    max-height: 55vh;
+    overflow-y: auto;
+  }
+  .guess-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .guess-grid button { font-size: 12px; padding: 7px 6px; color: #eef2f7; }
+  .guess-grid button.guess-g { background: rgba(46, 160, 67, 0.16); border: 2px solid #2ea043; }
+  .guess-grid button.guess-r { background: rgba(218, 54, 51, 0.16); border: 2px solid #da3633; }
+  .guess-grid button.guess-b { background: rgba(56, 139, 253, 0.16); border: 2px solid #388bfd; }
+
+  /* スマホ表示での重なり・位置ずれ防止 */
+  @media (max-width: 560px) {
+    .village-wrap {
+      width: 96vw;
+      height: min(68dvh, 460px);
+    }
+    .house-node { width: 64px; }
+    .house-graphic { width: 44px; height: 36px; }
+    .house-ground-shadow { width: 46px; height: 10px; }
+    .house-roof {
+      border-left-width: 24px;
+      border-right-width: 24px;
+      border-bottom-width: 15px;
+      left: -2px;
+    }
+    .house-body { width: 36px; height: 21px; }
+    .house-door { width: 10px; height: 13px; }
+    .house-icon-overlay { font-size: 12px; top: -5px; right: -6px; }
+    .vote-pill { font-size: 9px; padding: 0 5px; }
+    .house-name { font-size: 9px; padding: 1px 4px; }
+    .house-sub { font-size: 8px; }
+
+    .village-center { width: 30%; min-width: 104px; padding: 5px; border-radius: 12px; }
+    .phase-label { font-size: 12px; }
+    .progress-label { font-size: 9px; margin-bottom: 2px; }
+    .skip-count-pill { font-size: 9px; padding: 0 6px; }
+    .center-actions button { padding: 4px 4px; font-size: 10px; }
+
+    .char-node { width: 42px; }
+    .char-node .char-sprite svg { width: 38px; height: 38px; }
+    .char-tag { font-size: 8px; max-width: 54px; }
+
+    .floating-log-panel { width: 240px; right: 8px; bottom: 8px; }
+    .log-box { max-height: 150px; }
+  }
+</style>
+</head>
+<body>
+<!-- 役職能力説明ツールチップ -->
+<div id="roleTooltip" class="role-tooltip hidden"></div>
+
+<!-- 空背景（昼の太陽・雲、夜の月・星空） -->
+<div id="skyBackdrop" class="sky-backdrop hidden">
+  <div id="daySky">
+    <div class="sky-sun"></div>
+    <div class="sky-cloud cloud-1"></div>
+    <div class="sky-cloud cloud-2"></div>
+  </div>
+  <div id="nightSky" class="hidden">
+    <div class="sky-moon">
+      <div class="sky-moon-crater" style="width:14px; height:14px; top:14px; left:16px;"></div>
+      <div class="sky-moon-crater" style="width:9px; height:9px; top:38px; left:36px;"></div>
+      <div class="sky-moon-crater" style="width:11px; height:11px; top:24px; left:42px;"></div>
+    </div>
+    <div class="sky-star" style="width:3px; height:3px; top:12%; left:14%; animation-delay:0.2s;"></div>
+    <div class="sky-star" style="width:4px; height:4px; top:20%; left:28%; animation-delay:0.9s;"></div>
+    <div class="sky-star" style="width:2.5px; height:2.5px; top:9%; left:46%; animation-delay:1.4s;"></div>
+    <div class="sky-star" style="width:3.5px; height:3.5px; top:18%; left:62%; animation-delay:0.5s;"></div>
+    <div class="sky-star" style="width:3px; height:3px; top:28%; left:84%; animation-delay:1.8s;"></div>
+    <div class="sky-star" style="width:2.5px; height:2.5px; top:34%; left:10%; animation-delay:1.1s;"></div>
+    <div class="sky-star" style="width:4px; height:4px; top:14%; left:76%; animation-delay:2.1s;"></div>
+    <div class="sky-star" style="width:3px; height:3px; top:38%; left:91%; animation-delay:0.7s;"></div>
+  </div>
+</div>
+
+<div class="container">
+  <div id="topTitleRow" class="row" style="justify-content:space-between; margin-bottom:6px;">
+    <h1 style="font-size:18px; margin:0;">🎭 Mask Village</h1>
+    <div style="display:flex; gap:6px; align-items:center;">
+      <button id="forceBtn" class="secondary hidden" style="padding:4px 10px; font-size:12px;" onclick="forceAdvance()">強制進行（ホスト）</button>
+      <button id="debugAbortBtn" class="danger hidden" style="padding:4px 10px; font-size:12px;" onclick="backToLobby()">🛑 強制終了</button>
+    </div>
+  </div>
+
+  <!-- 名前入力画面 -->
+  <div id="joinScreen" class="card">
+    <h3>プレイヤー名を入力して参加</h3>
+    <div id="kickedNotice" class="error hidden" style="margin-bottom:8px;">ホストによりロビーから退出させられました。</div>
+    <div class="row">
+      <input id="nameInput" type="text" placeholder="あなたの名前" maxlength="12">
+      <button onclick="joinGame()">参加する</button>
+    </div>
+  </div>
+
+  <!-- ロビー画面 -->
+  <div id="lobbyScreen" class="hidden">
+    <div class="card">
+      <h3>参加者一覧（<span id="userCount">0</span>人オンライン）</h3>
+      <div id="userList" class="lobby-user-list"></div>
+      <p style="font-size:12px; color:var(--muted); margin:8px 0 0;">※総人数に満たない枠は自動でボットが補充されます。</p>
+    </div>
+
+    <div class="card">
+      <h3>🎨 キャラクターの色を選択（13色）</h3>
+      <div id="colorGrid" class="color-grid"></div>
+    </div>
+
+    <div class="card">
+      <h3>役職構成設定 <span id="hostBadge" class="badge c-b hidden">あなたはホストです</span></h3>
+      <div class="row">
+        <label>総人数: <input id="totalInput" type="number" min="3" max="20" style="width:70px" onchange="syncConfig()"></label>
+      </div>
+      <div id="addRoleBar" class="row" style="background:#121722; padding:8px; border-radius:8px; border:1px solid #2d3646;">
+        <select id="newCampSelect" onchange="updateNewRoleOptions()">
+          <option value="g">緑（イノセント）</option>
+          <option value="r">赤（インポスター）</option>
+          <option value="b">青（第三陣営）</option>
+        </select>
+        <select id="newRoleSelect"></select>
+        <button class="secondary" onclick="addSelectedSlot()">+ 追加</button>
+      </div>
+      <div id="slotList" style="margin-top:8px;"></div>
+      <div id="errorBox" class="error"></div>
+      <div style="margin-top:12px;">
+        <button id="startBtn" onclick="startGame()">ゲーム開始</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ゲーム画面 -->
+  <div id="gameScreen" class="hidden" style="flex:1; display:flex; flex-direction:column;">
+    <div class="game-top-bar">
+      <div id="myRoleHeaderBox" style="display:flex; align-items:center; gap:7px; cursor:pointer;">
+        <span id="myRoleIconWrap"></span>
+        <div>
+          <span id="myRoleBadge" class="badge"></span>
+          <span id="myStatus" style="font-size:12px; margin-left:3px;"></span>
+        </div>
+      </div>
+      <div id="topRoleBar" class="role-bar-wrap"></div>
+      <div id="actionStatusText" style="font-size:12px; color:#d97706; font-weight:bold;"></div>
+    </div>
+
+    <!-- 楕円ビレッジマップ（立体配置） -->
+    <div class="village-stage">
+      <div id="villageWrap" class="village-wrap">
+        <div id="finishOverlay" class="finish-overlay hidden">
+          <h2>🏁 ゲーム決着！</h2>
+          <div style="font-size:13px; color:#cbd5e1;">リザルト画面へ移動します...</div>
+        </div>
+        <div class="plaza-ring"></div>
+        <div id="villageCenter" class="village-center">
+          <div id="phaseTitle" class="phase-label"></div>
+          <div id="progressText" class="progress-label"></div>
+          <div id="skipCountBox" class="skip-count-pill hidden"></div>
+          <div id="centerActions" class="center-actions"></div>
+        </div>
+        <div id="housesLayer"></div>
+        <div id="charsLayer"></div>
+        <div id="fxLayer"></div>
+      </div>
+    </div>
+
+    <!-- 右下フローティング統合ログ -->
+    <div id="floatingLogPanel" class="floating-log-panel">
+      <div class="floating-log-header" onclick="toggleLogPanel()">
+        <span>📜 ログ（時系列・🔒個人含む）</span>
+        <span id="logToggleBtn" style="color:#94a3b8; font-size:11px;">▼ 閉じる</span>
+      </div>
+      <div id="combinedLogBox" class="log-box"></div>
+    </div>
+  </div>
+
+  <!-- リザルト画面 -->
+  <div id="resultScreen" class="result-screen hidden">
+    <div class="result-banner">
+      <h2 id="resultWinnerTitle"></h2>
+      <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">👑 が勝利プレイヤーです</div>
+      <button id="resultBackBtn" class="hidden" onclick="backToLobby()">ロビーに戻る</button>
+      <div id="resultWaitHostText" class="hidden" style="font-size:12px; color:var(--muted);">ホストがロビーに戻るのを待っています...</div>
+    </div>
+
+    <div class="card">
+      <h3>プレイヤー結果一覧</h3>
+      <div id="resultPlayerList" class="result-list"></div>
+    </div>
+
+    <div class="card">
+      <h3>📜 試合ログ振り返り（時系列）</h3>
+      <div id="resultLogBox" class="log-box" style="max-height:280px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ゲーム開始時の役職ポップアップオーバーレイ -->
+<div id="roleRevealOverlay" class="role-reveal-overlay hidden">
+  <div id="roleRevealCard" class="role-reveal-card">
+    <div class="role-reveal-lead">あなたの役職は</div>
+    <div id="roleRevealChar" class="role-reveal-char"></div>
+    <div class="role-reveal-role-row">
+      <div id="roleRevealIcon"></div>
+      <div id="roleRevealName" class="role-reveal-name"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 家クリック時の選択肢モーダル -->
+<div id="houseModal" class="modal-backdrop hidden" onclick="if(event.target===this)closeModal()">
+  <div class="modal-card">
+    <h3 id="modalTitle" style="margin-bottom:4px;"></h3>
+    <div id="modalSub" style="font-size:12px; color:var(--muted);"></div>
+    <div id="modalChoices" class="modal-choices"></div>
+    <button class="secondary" style="width:100%;" onclick="closeModal()">閉じる</button>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+// ★ サーバーと完全同期するフェーズ遷移タイマー定数（ms）
+const PHASE_TIMERS = {
+  roleReveal: 4500,        // 開始時役職表示
+  toDay: 3800,             // 夜→朝（広場集合）
+  toNight: 3500,           // 昼→夜（帰宅入室）
+  nightEvent: 7800,        // 夜の役職行動1件あたり
+  nightEmpty: 1500,        // 夜の役職行動0件時
+  morningDeath: 4800,      // 朝の死体発見ズーム1件あたり
+  morningRat: 4800,        // 朝のねずみ指さし1件あたり
+  exile: 7500,             // 昼の追放演出
+  toResult: 2500           // 決着オーバーレイ
+};
+
+// ★ 楕円ビレッジ＆立体配置の調整パラメータ
+const ELLIPSE_CONFIG = {
+  houseRx: 42.0,     // 家の楕円・横半径 (%)
+  houseRy: 38.5,     // 家の楕円・縦半径 (%)
+  plazaRx: 24.5,     // 広場キャラの楕円・横半径 (%)
+  plazaRy: 22.0,     // 広場キャラの楕円・縦半径 (%)
+  deadRx: 31.5,      // 死亡キャラの楕円・横半径 (%)
+  deadRy: 28.5,      // 死亡キャラの楕円・縦半径 (%)
+  minScale: 0.85,    // 一番奥（上側）の家・キャラの縮小率
+  maxScale: 1.13     // 一番手前（下側）の家・キャラの拡大率
+};
+
+// ★ 全役職の能力説明データ
+const ROLE_DESCRIPTIONS = {
+  'g:': { name: '緑ランダム', camp: 'g', desc: '緑陣営（村人側）の全役職の中からランダムに抽選されます。全ての赤陣営・危険な第三陣営を追放すれば勝利します。' },
+  'g:rat': { name: 'ねずみ', camp: 'g', desc: '夜に1人を調査し、翌朝になると対象が「誰の家を訪れたか（または外出していないか）」を全員の前で指さして公表します（試合中1回まで）。' },
+  'g:inv': { name: 'インベスティゲーター', camp: 'g', desc: '夜に1人を調査し、その人の役職を含む「2つの役職候補」を突き止めます。結果は対象の家の下にアイコンで残ります。' },
+  'g:pol': { name: 'ポリス', camp: 'g', desc: '夜に1人の家の前で見張り、対象が夜に外出しようとしたら阻止して夜の行動を封じます（2夜連続で同じ対象は不可）。' },
+  'g:trap': { name: 'トラッパー', camp: 'g', desc: '夜に1人の家に罠を仕掛け、その夜にその家へ最初に訪れた訪問者の行動を阻止します（試合中2回まで）。' },
+  'g:look': { name: 'ルックアウト', camp: 'g', desc: '夜に1人の家を見張り、その夜にその家を訪れた全プレイヤーを目撃して確認できます（試合中何度でも使用可能）。' },
+  'g:trk': { name: 'トラッカー', camp: 'g', desc: '夜に1人を追跡し、その人が夜にどの家へ移動したか足跡を辿って特定します（2夜連続で同じ対象は不可・試合中何度でも使用可能）。' },
+  'g:prov': { name: '挑発者', camp: 'g', desc: '夜に1人を挑発し、翌朝の時点で対象に事前に2票が入った状態にします（試合中2回まで）。昼には通常通り投票も可能です。' },
+  'g:doc': { name: 'ドクター', camp: 'g', desc: '夜に1人を治療し、その夜に襲撃されて死亡するのを防ぎます（2夜連続で同じ対象は不可）。' },
+  'g:fool': { name: 'バカ', camp: 'g', desc: '村の中にいる緑役職（挑発者以外）のいずれかだと思い込んでいますが、実際には誤った結果や空振りの能力しか発動しない特殊枠です。' },
+  'r:': { name: '赤ランダム', camp: 'r', desc: '赤陣営（インポスター側）の全役職の中からランダムに抽選されます。' },
+  'r:imp': { name: 'インポスター', camp: 'r', desc: '夜に1人の家へ侵入して襲撃（キル）できます。仲間同士は互いに認識でき、イノセントと同数以下まで減らせば勝利です。' },
+  'r:blm': { name: 'ブレイマー', camp: 'r', desc: 'インポスターの襲撃能力に加え、夜に1人を塗り替えて死亡時・インベ・ねずみ等の判定結果を赤役職として表示させます（試合中2回まで）。' },
+  'r:cln': { name: 'クリーナー', camp: 'r', desc: 'インポスターの襲撃能力に加え、夜に掃除した対象が死亡した際に正体を「???（黄色枠の？アイコン）」として隠蔽できます。' },
+  'b:': { name: '青ランダム', camp: 'b', desc: '緑とも赤とも異なる独自の勝利条件を持つ第三陣営の全役職の中からランダムに抽選されます。' },
+  'b:sk': { name: 'シリアルキラー', camp: 'b', desc: '夜に1人を襲撃（キル）できる単独殺人鬼です。キルした相手の死体は正体不明（???）になります。最後まで生き残ると単独勝利します。' },
+  'b:mag': { name: '魔術師', camp: 'b', desc: '夜に1人の役職を推理して当てると雷を落として倒します。推理を外すと自分が灰になって死亡します。' },
+  'b:gho': { name: 'ゴースト', camp: 'b', desc: '昼の投票で追放（処刑）されると勝利条件を達成し、さらに自分に投票した相手1人を道連れにします。' },
+  'b:bom': { name: 'ボマー', camp: 'b', desc: '夜に1人の家へ爆弾を仕掛け、別の夜に「起爆」を選ぶと爆弾を仕掛けた全ての家をまとめて爆破します。' },
+  'b:thf': { name: 'シーフ', camp: 'b', desc: '夜に1人を殺害してその役職をコピーします（試合中1回まで）。ドクター蘇生等で殺害を阻まれるとコピーできず、奪った役職は翌朝に判明します。' },
+  'b:sur': { name: 'サバイバー', camp: 'b', desc: '夜にシールド（最大3回）を張って襲撃から身を守り、どの陣営の決着時でも生存していれば追加勝利します。' },
+  'u:unknown': { name: '正体不明（???）', camp: 'u', desc: '正体が隠蔽されているか、ランダム枠です。' }
+};
+
+function getRoleInfo(camp, role) {
+  const r = role || '';
+  if (r === 'unknown') return ROLE_DESCRIPTIONS['u:unknown'];
+  const key = `${camp || 'g'}:${r}`;
+  if (ROLE_DESCRIPTIONS[key]) return ROLE_DESCRIPTIONS[key];
+  if (camp === 'r' && ROLE_DESCRIPTIONS[`g:${r}`]) {
+    const base = ROLE_DESCRIPTIONS[`g:${r}`];
+    return {
+      name: `赤${base.name}`,
+      camp: 'r',
+      desc: `インポスターの襲撃（キル）能力に加え、${base.desc}`
+    };
+  }
+  const fallbackName = (currentState && currentState.meta && currentState.meta.N && r && currentState.meta.N[r]) || '不明な役職';
+  return { name: fallbackName, camp: camp || 'g', desc: '固有の能力を持つ役職です。' };
+}
+
+// 役職説明ツールチップ制御（ホバー＆クリック両対応）
+let pinnedTooltipAnchor = null;
+
+function showRoleTooltip(anchorEl, camp, role, isPinned = false) {
+  const tip = document.getElementById('roleTooltip');
+  if (!tip || !anchorEl) return;
+  const info = getRoleInfo(camp, role);
+  const campNames = { g: '緑（イノセント）', r: '赤（インポスター）', b: '青（第三陣営）', u: '正体不明' };
+  const c = info.camp || camp || 'g';
+
+  tip.className = `role-tooltip camp-${c}`;
+  tip.innerHTML = `
+    <div class="role-tooltip-head">
+      ${renderRoleIcon(c, role, 'sm', false)}
+      <div>
+        <div class="role-tooltip-title">${info.name}</div>
+        <span class="badge c-${c}" style="font-size:10px; padding:1px 6px; margin-top:2px;">${campNames[c] || ''}</span>
+      </div>
+    </div>
+    <div class="role-tooltip-desc">${info.desc}</div>
+  `;
+  tip.classList.remove('hidden');
+
+  const rect = anchorEl.getBoundingClientRect();
+  const tipW = tip.offsetWidth || 260;
+  const tipH = tip.offsetHeight || 110;
+  let left = rect.left + rect.width / 2 - tipW / 2;
+  left = Math.max(10, Math.min(window.innerWidth - tipW - 10, left));
+  let top = rect.bottom + 8;
+  if (top + tipH > window.innerHeight - 10) {
+    top = Math.max(10, rect.top - tipH - 8);
+  }
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+
+  if (isPinned) {
+    pinnedTooltipAnchor = anchorEl;
+  }
+}
+
+function hideRoleTooltip(force = false) {
+  if (!force && pinnedTooltipAnchor) return;
+  pinnedTooltipAnchor = null;
+  const tip = document.getElementById('roleTooltip');
+  if (tip) tip.classList.add('hidden');
+}
+
+function onRoleIconClick(event, el) {
+  event.stopPropagation();
+  const camp = el.dataset.camp || 'g';
+  const role = el.dataset.role || '';
+  if (pinnedTooltipAnchor === el) {
+    hideRoleTooltip(true);
+  } else {
+    showRoleTooltip(el, camp, role, true);
+  }
+}
+
+function onRoleIconEnter(el) {
+  if (pinnedTooltipAnchor) return;
+  const camp = el.dataset.camp || 'g';
+  const role = el.dataset.role || '';
+  showRoleTooltip(el, camp, role, false);
+}
+
+function onRoleIconLeave() {
+  if (!pinnedTooltipAnchor) {
+    hideRoleTooltip(false);
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const tip = document.getElementById('roleTooltip');
+  if (tip && !tip.contains(e.target)) {
+    hideRoleTooltip(true);
+  }
+});
+
+const socket = io();
+let uid = localStorage.getItem('mv_uid');
+if (!uid) {
+  uid = 'u_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  localStorage.setItem('mv_uid', uid);
+}
+const savedName = localStorage.getItem('mv_name');
+if (savedName) document.getElementById('nameInput').value = savedName;
+
+let currentState = null;
+let joined = false;
+let prevPhase = null;
+let renderedGid = null;
+let lastTimelineCount = 0;
+let lastFxKey = null;
+
+// インベスティゲーターが調査した家の結果（targetId -> [{c, role}, {c, role}]）
+const invHouseResults = new Map();
+
+// キャラクターの前回X座標と現在の向き（1:右向き, -1:左向き）
+const charLastX = new Map();
+const charFacing = new Map();
+let dayWalkStopTimer = null;
+
+// その夜に爆破された家を一時的に保持
+let revealedBombedHouses = new Set();
+
+// 夜の役職行動モーション再生用ステート（1イベント 7800ms）
+let nightPlaybackTimer = null;
+let nightSubTimers = [];
+let activeNightEvent = null;
+let activeNightEventIdx = -1;
+let nightSubStep = 0;
+let nightPlaybackKey = null;
+
+// 朝の死体ズーム＆役職ポップ再生用ステート（4800ms / 死体）
+let morningDeathTimer = null;
+let activeMorningDeath = null;
+let morningDeathKey = null;
+
+// 朝のねずみ指さし再生用ステート（4800ms / 件）
+let morningRatTimer = null;
+let activeMorningRat = null;
+let morningRatKey = null;
+
+function clearNightSubTimers() {
+  nightSubTimers.forEach(t => clearTimeout(t));
+  nightSubTimers = [];
+}
+
+function clearNightPlayback() {
+  if (nightPlaybackTimer) { clearInterval(nightPlaybackTimer); nightPlaybackTimer = null; }
+  clearNightSubTimers();
+  activeNightEvent = null;
+  activeNightEventIdx = -1;
+  nightSubStep = 0;
+  nightPlaybackKey = null;
+  lastFxKey = null;
+  revealedBombedHouses.clear();
+}
+
+function clearMorningPlaybacks() {
+  if (morningDeathTimer) { clearInterval(morningDeathTimer); morningDeathTimer = null; }
+  if (morningRatTimer) { clearInterval(morningRatTimer); morningRatTimer = null; }
+  activeMorningDeath = null;
+  morningDeathKey = null;
+  activeMorningRat = null;
+  morningRatKey = null;
+  lastFxKey = null;
+}
+
+function toggleLogPanel() {
+  const panel = document.getElementById('floatingLogPanel');
+  const btn = document.getElementById('logToggleBtn');
+  const collapsed = panel.classList.toggle('collapsed');
+  btn.textContent = collapsed ? '▲ 開く' : '▼ 閉じる';
+}
+
+// ---- Feign風 キャラクターSVG生成（足踏み歩行アニメーション対応） ----
+const GRAY_COLOR = { hex: '#64748b', light: '#cbd5e1' };
+
+function renderAshPileSvg(size = 56) {
+  return `
+    <svg width="${size}" height="${size}" viewBox="0 0 64 64" style="display:block; margin:0 auto; filter:drop-shadow(0 3px 4px rgba(0,0,0,0.5));">
+      <ellipse cx="32" cy="54" rx="24" ry="6" fill="#475569"/>
+      <path d="M10 53 Q18 34 32 30 Q46 34 54 53 Z" fill="#94a3b8" stroke="#334155" stroke-width="2"/>
+      <path d="M17 53 Q24 39 32 36 Q40 39 47 53 Z" fill="#cbd5e1"/>
+      <path d="M23 44 Q28 41 34 45 M35 41 Q40 43 44 48" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linecap="round"/>
+      <circle cx="14" cy="55" r="1.8" fill="#94a3b8"/>
+      <circle cx="51" cy="54" r="2" fill="#94a3b8"/>
+      <circle cx="28" cy="24" r="1.4" fill="#cbd5e1" opacity="0.7"/>
+      <circle cx="36" cy="21" r="1.2" fill="#94a3b8" opacity="0.6"/>
+    </svg>
+  `;
+}
+
+function renderCharacterSvg(colorObj, isDead, size = 56, isAsh = false) {
+  if (isDead && isAsh) {
+    return renderAshPileSvg(size);
+  }
+  const c = colorObj || { hex: '#1e88e5', light: '#82b1ff' };
+  const eyes = isDead
+    ? `<path d="M22 25 L27 30 M27 25 L22 30 M37 25 L42 30 M42 25 L37 30" stroke="#111" stroke-width="2.5" stroke-linecap="round"/>`
+    : `<circle cx="26" cy="27" r="2.8" fill="#111"/><circle cx="40" cy="27" r="2.8" fill="#111"/>
+       <circle cx="27" cy="26" r="1" fill="#fff"/><circle cx="41" cy="26" r="1" fill="#fff"/>`;
+  return `
+    <svg width="${size}" height="${size}" viewBox="0 0 64 64" style="display:block; margin:0 auto; overflow:visible; filter:drop-shadow(0 3px 4px rgba(0,0,0,0.45));">
+      <ellipse class="char-foot-l" cx="24" cy="56" rx="6.2" ry="4" fill="#1e293b"/>
+      <ellipse class="char-foot-r" cx="40" cy="56" rx="6.2" ry="4" fill="#1e293b"/>
+      <g class="char-body-group">
+        <path d="M16 54 C14 36, 16 12, 32 12 C48 12, 50 36, 48 54 Z" fill="${c.hex}" stroke="#0f172a" stroke-width="2.5"/>
+        <ellipse cx="33" cy="28" rx="13" ry="11" fill="${c.light}" stroke="#0f172a" stroke-width="2"/>
+        <path d="M17 38 Q32 45 47 38" fill="none" stroke="#0f172a" stroke-width="2.2"/>
+        ${eyes}
+        <path d="M29 32 Q33 37 37 32 Q33 30 29 32 Z" fill="#ffb300" stroke="#0f172a" stroke-width="1.5"/>
+      </g>
+    </svg>
+  `;
+}
+
+// サバイバーの盾が割れるSVG
+function renderBreakingShieldSvg() {
+  return `
+    <div class="shield-break-wrap">
+      <svg width="64" height="64" viewBox="0 0 64 64" style="overflow:visible;">
+        <g class="shield-half-left">
+          <path d="M32 8 L14 15 V30 C14 42 22 50 32 54 L29 38 L34 26 L30 16 Z" fill="#388bfd" stroke="#ffffff" stroke-width="2.2"/>
+        </g>
+        <g class="shield-half-right">
+          <path d="M32 8 L50 15 V30 C50 42 42 50 32 54 L29 38 L34 26 L30 16 Z" fill="#1d4ed8" stroke="#ffffff" stroke-width="2.2"/>
+        </g>
+      </svg>
+    </div>
+  `;
+}
+
+// ---- 四角い役職アイコンSVG生成 ----
+const ROLE_SVGS = {
+  '': `<text x="16" y="22" text-anchor="middle" font-size="18" font-weight="bold" fill="#f8fafc">?</text>`,
+  unknown: `<text x="16" y="23" text-anchor="middle" font-size="20" font-weight="900" fill="#f8fafc">?</text>`,
+  imp: `<path d="M24 6 L12 18 L15 21 L26 8 Z" fill="#f8fafc"/>
+        <line x1="10" y1="16" x2="17" y2="23" stroke="#cbd5e1" stroke-width="2.6" stroke-linecap="round"/>
+        <line x1="12.5" y1="19.5" x2="7.5" y2="24.5" stroke="#f8fafc" stroke-width="3.2" stroke-linecap="round"/>`,
+  rat: `<circle cx="13" cy="11" r="3.8" fill="#f8fafc"/>
+        <path d="M6 19 Q11 11 20 14 Q24 16 25 19 Q17 22 6 19 Z" fill="#f8fafc"/>
+        <circle cx="9.5" cy="17" r="1.2" fill="#0f172a"/>
+        <path d="M24 18 Q29 16 27 12 Q26 10 29 9" fill="none" stroke="#f8fafc" stroke-width="2" stroke-linecap="round"/>`,
+  inv: `<circle cx="14" cy="14" r="6.5" fill="none" stroke="#f8fafc" stroke-width="2.5"/>
+        <line x1="19" y1="19" x2="25" y2="25" stroke="#f8fafc" stroke-width="3" stroke-linecap="round"/>`,
+  pol: `<g transform="rotate(-38 16 16)">
+          <rect x="13.5" y="4" width="5" height="24" rx="2.5" fill="#f8fafc"/>
+          <rect x="8" y="17" width="7" height="3.5" rx="1.5" fill="#cbd5e1"/>
+          <circle cx="16" cy="5.5" r="2.8" fill="#f8fafc"/>
+        </g>`,
+  trap: `<ellipse cx="16" cy="17" rx="11" ry="8" fill="none" stroke="#f8fafc" stroke-width="2.4"/>
+         <circle cx="16" cy="17" r="3.2" fill="#cbd5e1"/>
+         <path d="M7 13 L10 15 M11 10 L13 13 M21 10 L19 13 M25 13 L22 15 M7 21 L10 19 M11 24 L13 21 M21 24 L19 21 M25 21 L22 19" stroke="#f8fafc" stroke-width="2" stroke-linecap="round"/>`,
+  look: `<path d="M5 16 Q16 7 27 16 Q16 25 5 16 Z" fill="none" stroke="#f8fafc" stroke-width="2.2"/>
+         <circle cx="16" cy="16" r="4" fill="#f8fafc"/>
+         <circle cx="16" cy="16" r="1.6" fill="#0f172a"/>`,
+  trk: `<ellipse cx="12" cy="13" rx="3" ry="5" fill="#f8fafc"/><circle cx="12" cy="6.5" r="1.5" fill="#f8fafc"/>
+        <ellipse cx="20" cy="20" rx="3" ry="5" fill="#f8fafc"/><circle cx="20" cy="13.5" r="1.5" fill="#f8fafc"/>`,
+  prov: `<path d="M6 13 L10 13 L22 7 V25 L10 19 L6 19 Z" fill="#f8fafc"/>
+         <path d="M9 19 L11 25 H14 L12 19" fill="#cbd5e1"/>
+         <path d="M25 12 Q28 16 25 20" fill="none" stroke="#f8fafc" stroke-width="2.2" stroke-linecap="round"/>`,
+  doc: `<path d="M12 10 V7.5 C12 6.7 12.7 6 13.5 6 H18.5 C19.3 6 20 6.7 20 7.5 V10" fill="none" stroke="#f8fafc" stroke-width="2.2"/>
+        <rect x="5" y="10" width="22" height="16" rx="3" fill="#f8fafc"/>
+        <rect x="14.5" y="13.5" width="3" height="9" rx="0.8" fill="#0f172a"/>
+        <rect x="11.5" y="16.5" width="9" height="3" rx="0.8" fill="#0f172a"/>`,
+  fool: `<path d="M16 4 Q19 2 18 6 Q21 5 19 8" fill="none" stroke="#f8fafc" stroke-width="2" stroke-linecap="round"/>
+         <circle cx="16" cy="17" r="10" fill="none" stroke="#f8fafc" stroke-width="2.2"/>
+         <circle cx="11.5" cy="14.5" r="2.2" fill="#f8fafc"/>
+         <circle cx="20.5" cy="15.5" r="1.6" fill="#f8fafc"/>
+         <ellipse cx="16" cy="21.5" rx="3.2" ry="2.5" fill="#f8fafc"/>
+         <path d="M18.5 23 Q19.5 26 18 27" fill="none" stroke="#cbd5e1" stroke-width="1.8" stroke-linecap="round"/>`,
+  blm: `<path d="M10 12 Q16 7 22 12" fill="none" stroke="#cbd5e1" stroke-width="2"/>
+        <polygon points="8,12 24,12 21.5,25 10.5,25" fill="#f8fafc"/>
+        <ellipse cx="16" cy="12" rx="8" ry="2.2" fill="#94a3b8"/>`,
+  cln: `<line x1="21" y1="5" x2="14" y2="16" stroke="#f8fafc" stroke-width="2.8" stroke-linecap="round"/>
+        <rect x="10.5" y="14.5" width="7" height="3" rx="1" transform="rotate(28 14 16)" fill="#94a3b8"/>
+        <path d="M10 16 L17 20 L13 27 L9 25 L10 22 L7 25 L5 23 Z" fill="#f8fafc"/>`,
+  sk: `<path d="M23 7 L13 17 L16 20 L25 9 Z" fill="#f8fafc"/>
+       <line x1="11" y1="16" x2="17" y2="22" stroke="#cbd5e1" stroke-width="2.5"/>
+       <line x1="13" y1="19" x2="8" y2="24" stroke="#f8fafc" stroke-width="3" stroke-linecap="round"/>`,
+  mag: `<polygon points="18,6 10,17 16,17 13,26 23,14 17,14" fill="#f8fafc"/>`,
+  gho: `<path d="M10 24 V14 A6 6 0 0 1 22 14 V24 L19 21 L16 24 L13 21 Z" fill="#f8fafc"/>
+        <circle cx="14" cy="13" r="1.4" fill="#0f172a"/><circle cx="18" cy="13" r="1.4" fill="#0f172a"/>`,
+  bom: `<circle cx="15" cy="18" r="7" fill="#f8fafc"/>
+        <path d="M19 12 Q22 8 25 9" fill="none" stroke="#cbd5e1" stroke-width="2"/>
+        <circle cx="25.5" cy="9" r="1.8" fill="#f8fafc"/>`,
+  thf: `<rect x="9" y="6" width="14" height="9" rx="1.5" fill="#f8fafc"/>
+        <rect x="5" y="14" width="22" height="2.8" rx="1.4" fill="#cbd5e1"/>
+        <path d="M7 19 Q16 17 25 19 Q24 25 16 23 Q8 25 7 19 Z" fill="#f8fafc"/>
+        <circle cx="12" cy="20.5" r="1.6" fill="#0f172a"/>
+        <circle cx="20" cy="20.5" r="1.6" fill="#0f172a"/>`,
+  sur: `<path d="M16 7 L24 10 V17 C24 22 20 25 16 26 C12 25 8 22 8 17 V10 Z" fill="#f8fafc"/>`,
+  skull: `<ellipse cx="16" cy="13.5" rx="9.5" ry="7.8" fill="#f8fafc"/>
+          <rect x="10.8" y="18.2" width="10.4" height="6" rx="2.8" fill="#f8fafc"/>
+          <circle cx="12.2" cy="14" r="2.7" fill="#0f172a"/>
+          <circle cx="19.8" cy="14" r="2.7" fill="#0f172a"/>
+          <polygon points="16,16.2 14.7,18.2 17.3,18.2" fill="#0f172a"/>
+          <line x1="14" y1="21.2" x2="14" y2="24.2" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round"/>
+          <line x1="18" y1="21.2" x2="18" y2="24.2" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round"/>`,
+  kick: `<g transform="rotate(-22 15 17)">
+           <path d="M8 7 H15.5 V15.5 L22.5 16.8 C25.2 17.3 26.5 19.2 26.5 21.5 V23 H7.5 V16.5 L8 7 Z" fill="#f8fafc"/>
+           <line x1="8" y1="10.2" x2="15.5" y2="10.2" stroke="#0f172a" stroke-width="1.6"/>
+           <line x1="15.5" y1="13" x2="18.2" y2="12.4" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round"/>
+           <line x1="17.5" y1="15.2" x2="20" y2="14.5" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round"/>
+           <line x1="7.5" y1="20.4" x2="26.5" y2="20.4" stroke="#0f172a" stroke-width="1.8"/>
+         </g>
+         <path d="M25.5 9 L28.5 7.5 M26.5 13 L30 13 M25.5 17 L28.5 18.5" stroke="#f8fafc" stroke-width="2" stroke-linecap="round"/>`
+};
+
+function renderRoleIcon(camp, role, sizeMode = 'md', isMineSlot = false) {
+  const key = (role === undefined || role === null) ? '' : role;
+  const effectiveCamp = key === 'unknown' ? 'u' : camp;
+  const svgInner = ROLE_SVGS[key] || ROLE_SVGS[''];
+  const cls = sizeMode === 'xs' ? 'xs' : (sizeMode === 'sm' ? 'sm' : (sizeMode === 'lg' ? 'lg' : ''));
+  const px = sizeMode === 'xs' ? 13 : (sizeMode === 'sm' ? 18 : (sizeMode === 'lg' ? 46 : 24));
+  return `
+    <span class="role-sq-icon camp-${effectiveCamp} ${cls} ${isMineSlot ? 'is-mine-slot' : ''}">
+      <svg width="${px}" height="${px}" viewBox="0 0 32 32">${svgInner}</svg>
+    </span>
+  `;
+}
+
+// 統合タイムラインログのレンダリング
+function renderTimelineLogs(entries, players, COLORS) {
+  if (!entries || !entries.length) {
+    return `<div style="color:var(--muted); font-size:12px;">まだ記録はありません</div>`;
+  }
+  return entries.map(entry => {
+    if (typeof entry === 'string') {
+      return `<div class="log-entry"><span>${entry}</span></div>`;
+    }
+    const isPriv = entry.scope === 'private';
+    const iconsHtml = (entry.icons || []).map(ic => {
+      if (ic.type === 'char') {
+        const p = players.find(x => x.id === ic.id);
+        const col = p ? (COLORS[p.color] || COLORS[0]) : COLORS[0];
+        const pName = p ? p.name : '?';
+        return `
+          <span class="log-char-chip">
+            ${renderCharacterSvg(col, false, 20, false)}
+            <span style="color:${col.light};">${pName}</span>
+          </span>
+        `;
+      }
+      if (ic.type === 'grayChar') {
+        return `
+          <span class="log-char-chip">
+            ${renderCharacterSvg(GRAY_COLOR, false, 20, false)}
+            <span style="color:#94a3b8;">誰か</span>
+          </span>
+        `;
+      }
+      if (ic.type === 'role') return renderRoleIcon(ic.c, ic.role, 'sm', false);
+      if (ic.type === 'skull') return renderRoleIcon('n', 'skull', 'sm', false);
+      if (ic.type === 'kick') return renderRoleIcon('n', 'kick', 'sm', false);
+      if (ic.type === 'ghost') return renderRoleIcon('b', 'gho', 'sm', false);
+      if (ic.type === 'mark') {
+        return ic.val === 'ok'
+          ? `<span class="log-sym-badge" style="color:#56d364; font-weight:900;">⭕</span>`
+          : `<span class="log-sym-badge" style="color:#ff7b72; font-weight:900;">❌</span>`;
+      }
+      return '';
+    }).join('');
+
+    return `
+      <div class="log-entry ${isPriv ? 'is-private' : ''}">
+        <span class="log-day-tag">D${entry.day}</span>
+        ${isPriv ? `<span class="log-priv-tag" title="個人ログ">🔒</span>` : ''}
+        ${iconsHtml ? `<div class="log-icons-row">${iconsHtml}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function joinGame() {
+  const name = document.getElementById('nameInput').value.trim() || 'プレイヤー';
+  localStorage.setItem('mv_name', name);
+  document.getElementById('kickedNotice').classList.add('hidden');
+  joined = true;
+  const savedColor = localStorage.getItem('mv_color');
+  socket.emit('join', { uid, name, preferredColor: savedColor !== null ? parseInt(savedColor, 10) : null });
+}
+
+socket.on('connect', () => {
+  if (joined) {
+    const savedColor = localStorage.getItem('mv_color');
+    socket.emit('join', {
+      uid,
+      name: localStorage.getItem('mv_name') || 'プレイヤー',
+      preferredColor: savedColor !== null ? parseInt(savedColor, 10) : null
+    });
+  }
+});
+
+socket.on('kicked', () => {
+  joined = false;
+  currentState = null;
+  clearNightPlayback();
+  clearMorningPlaybacks();
+  invHouseResults.clear();
+  hideRoleTooltip(true);
+  document.body.classList.remove('in-game', 'is-day', 'is-night');
+  document.getElementById('skyBackdrop').classList.add('hidden');
+  document.getElementById('lobbyScreen').classList.add('hidden');
+  document.getElementById('gameScreen').classList.add('hidden');
+  document.getElementById('resultScreen').classList.add('hidden');
+  document.getElementById('roleRevealOverlay').classList.add('hidden');
+  document.getElementById('forceBtn').classList.add('hidden');
+  document.getElementById('debugAbortBtn').classList.add('hidden');
+  document.getElementById('joinScreen').classList.remove('hidden');
+  document.getElementById('kickedNotice').classList.remove('hidden');
+});
+
+socket.on('spectator', () => {
+  alert('現在ゲーム進行中のため、次のゲームから参加できます。');
+});
+
+socket.on('state', (state) => {
+  currentState = state;
+  document.getElementById('joinScreen').classList.add('hidden');
+  const isHost = state.hostUid === uid;
+
+  if (state.mode === 'lobby') {
+    document.body.classList.remove('in-game', 'is-day', 'is-night');
+    document.getElementById('skyBackdrop').classList.add('hidden');
+    prevPhase = null;
+    renderedGid = null;
+    lastTimelineCount = 0;
+    lastFxKey = null;
+    charLastX.clear();
+    charFacing.clear();
+    invHouseResults.clear();
+    clearNightPlayback();
+    clearMorningPlaybacks();
+    closeModal();
+    document.getElementById('roleRevealOverlay').classList.add('hidden');
+    document.getElementById('lobbyScreen').classList.remove('hidden');
+    document.getElementById('gameScreen').classList.add('hidden');
+    document.getElementById('resultScreen').classList.add('hidden');
+    document.getElementById('forceBtn').classList.add('hidden');
+    document.getElementById('debugAbortBtn').classList.add('hidden');
+    renderLobby(state, isHost);
+  } else if (state.showResult) {
+    document.body.classList.remove('in-game', 'is-day', 'is-night');
+    document.getElementById('skyBackdrop').classList.add('hidden');
+    clearNightPlayback();
+    clearMorningPlaybacks();
+    closeModal();
+    document.getElementById('roleRevealOverlay').classList.add('hidden');
+    document.getElementById('lobbyScreen').classList.add('hidden');
+    document.getElementById('gameScreen').classList.add('hidden');
+    document.getElementById('forceBtn').classList.add('hidden');
+    document.getElementById('debugAbortBtn').classList.add('hidden');
+    document.getElementById('resultScreen').classList.remove('hidden');
+    renderResult(state, isHost);
+  } else {
+    document.body.classList.add('in-game');
+    document.getElementById('skyBackdrop').classList.remove('hidden');
+    document.getElementById('lobbyScreen').classList.add('hidden');
+    document.getElementById('resultScreen').classList.add('hidden');
+    document.getElementById('gameScreen').classList.remove('hidden');
+    renderGame(state, isHost);
+  }
+});
+
+function renderLobby(state, isHost) {
+  const { COLORS } = state.meta;
+  const meUser = state.users.find(u => u.uid === uid);
+  if (meUser && typeof meUser.color === 'number') {
+    localStorage.setItem('mv_color', meUser.color);
+  }
+
+  document.getElementById('hostBadge').classList.toggle('hidden', !isHost);
+  document.getElementById('userCount').textContent = state.users.filter(u => u.online).length;
+
+  document.getElementById('userList').innerHTML = state.users.map(u => {
+    const col = COLORS[u.color] || COLORS[0];
+    const isTargetHost = u.uid === state.hostUid;
+    const isMe = u.uid === uid;
+    let hostControls = '';
+    if (isHost && !isMe) {
+      hostControls = `
+        <div class="lobby-user-actions">
+          ${u.online ? `<button class="secondary" onclick="transferHost('${u.uid}')">👑 譲渡</button>` : ''}
+          <button class="danger" onclick="kickUser('${u.uid}')">キック</button>
+        </div>
+      `;
+    }
+    return `
+      <div class="lobby-user-row">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:${col.hex}; border:1px solid #fff;"></span>
+          <strong>${u.name}</strong>
+          ${isTargetHost ? '<span class="badge c-b">👑 ホスト</span>' : ''}
+          ${isMe ? '<span style="font-size:11px; color:var(--muted);">(あなた)</span>' : ''}
+          ${u.online ? '' : '<span style="font-size:11px; color:#ff7b72;">(オフライン)</span>'}
+        </div>
+        ${hostControls}
+      </div>
+    `;
+  }).join('');
+
+  const takenByOthers = new Map();
+  state.users.forEach(u => {
+    if (u.uid !== uid) takenByOthers.set(u.color, u.name);
+  });
+  document.getElementById('colorGrid').innerHTML = COLORS.map(c => {
+    const isSelected = meUser && meUser.color === c.id;
+    const owner = takenByOthers.get(c.id);
+    return `
+      <div class="color-chip ${isSelected ? 'selected' : ''} ${owner ? 'taken' : ''}"
+           onclick="${owner ? '' : `selectColor(${c.id})`}">
+        ${renderCharacterSvg(c, false, 38)}
+        <span>${c.name}</span>
+        ${owner ? `<span style="font-size:9px; color:#94a3b8;">${owner}</span>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  const totalInput = document.getElementById('totalInput');
+  totalInput.value = state.totalPlayers;
+  totalInput.disabled = !isHost;
+  document.getElementById('addRoleBar').classList.toggle('hidden', !isHost);
+  if (!document.getElementById('newRoleSelect').options.length) {
+    updateNewRoleOptions();
+  }
+
+  const groups = [];
+  const groupMap = new Map();
+  state.slots.forEach(s => {
+    const key = `${s.c}:${s.role || ''}`;
+    if (!groupMap.has(key)) {
+      const gObj = { c: s.c, role: s.role || null, label: s.label, count: 0 };
+      groupMap.set(key, gObj);
+      groups.push(gObj);
+    }
+    groupMap.get(key).count++;
+  });
+
+  document.getElementById('slotList').innerHTML = groups.map(g => `
+    <div class="role-group-row">
+      <div class="role-group-left"
+           data-camp="${g.c}" data-role="${g.role || ''}"
+           onmouseenter="onRoleIconEnter(this)"
+           onmouseleave="onRoleIconLeave()"
+           onclick="onRoleIconClick(event, this)">
+        ${renderRoleIcon(g.c, g.role, 'md')}
+        <div>
+          <strong>${g.label}</strong>
+          <span class="role-count-tag">×${g.count}</span>
+        </div>
+      </div>
+      ${isHost ? `
+        <div class="role-group-btns">
+          <button class="secondary" onclick="adjustRoleCount('${g.c}', '${g.role || ''}', -1)">−</button>
+          <button class="secondary" onclick="adjustRoleCount('${g.c}', '${g.role || ''}', 1)">＋</button>
+        </div>
+      ` : ''}
+    </div>
+  `).join('');
+
+  document.getElementById('errorBox').innerHTML = state.errors.join('<br>');
+  const startBtn = document.getElementById('startBtn');
+  startBtn.classList.toggle('hidden', !isHost);
+  startBtn.disabled = state.errors.length > 0;
+}
+
+function transferHost(targetUid) { socket.emit('transferHost', targetUid); }
+function kickUser(targetUid) { socket.emit('kickUser', targetUid); }
+
+function updateNewRoleOptions() {
+  if (!currentState) return;
+  const { N, G, R, B, CN } = currentState.meta;
+  const camp = document.getElementById('newCampSelect').value;
+  const roleList = {
+    g: ['', ...G, 'fool'],
+    r: ['', 'imp', ...R, ...G],
+    b: ['', ...B]
+  }[camp];
+  document.getElementById('newRoleSelect').innerHTML = roleList.map(r => {
+    let text = '';
+    if (r === '') text = `${CN[camp]}ランダム`;
+    else if (camp === 'r' && G.includes(r)) text = `赤${N[r]}`;
+    else text = N[r];
+    return `<option value="${r}">${text}</option>`;
+  }).join('');
+}
+
+function selectColor(colorId) {
+  localStorage.setItem('mv_color', colorId);
+  socket.emit('selectColor', colorId);
+}
+
+function addSelectedSlot() {
+  const c = document.getElementById('newCampSelect').value;
+  const role = document.getElementById('newRoleSelect').value || null;
+  adjustRoleCount(c, role || '', 1);
+}
+
+function adjustRoleCount(c, roleStr, delta) {
+  const role = roleStr || null;
+  const slots = currentState.slots.map(s => ({ c: s.c, role: s.role || null }));
+  if (delta > 0) {
+    slots.push({ c, role });
+  } else {
+    const idx = slots.findIndex(s => s.c === c && (s.role || null) === role);
+    if (idx >= 0) slots.splice(idx, 1);
+  }
+  socket.emit('updateConfig', { totalPlayers: slots.length, slots });
+}
+
+function syncConfig() {
+  const totalPlayers = parseInt(document.getElementById('totalInput').value, 10);
+  socket.emit('updateConfig', { totalPlayers });
+}
+function startGame() { socket.emit('startGame'); }
+function forceAdvance() { socket.emit('forceAdvance'); }
+function backToLobby() { socket.emit('backToLobby'); }
+
+function renderResult(state, isHost) {
+  const { view, meta } = state;
+  if (!view) return;
+  const { over, players, winners, timeline } = view;
+  const COLORS = meta.COLORS;
+  const winSet = new Set(winners || []);
+
+  document.getElementById('resultWinnerTitle').textContent = '🏆 ' + over;
+  document.getElementById('resultBackBtn').classList.toggle('hidden', !isHost);
+  document.getElementById('resultWaitHostText').classList.toggle('hidden', isHost);
+
+  document.getElementById('resultPlayerList').innerHTML = players.map(p => {
+    const col = COLORS[p.color] || COLORS[0];
+    const isWin = winSet.has(p.id);
+    const rd = p.fullRoleData || { text: '', icons: [] };
+    const roleIconsHtml = rd.icons.map((ic, idx) =>
+      (idx > 0 ? `<span style="color:var(--muted);">➔</span>` : '') + renderRoleIcon(ic.c, ic.role, 'sm', false)
+    ).join('');
+
+    return `
+      <div class="result-row ${isWin ? 'is-winner' : ''}">
+        <div class="result-player-left">
+          ${renderCharacterSvg(col, !p.alive, 38, false)}
+          <div>
+            <div class="result-name">
+              ${p.name} ${isWin ? '👑' : ''}
+            </div>
+            <div style="font-size:11px; color:${p.alive ? '#56d364' : '#8e9aaf'};">
+              ${p.alive ? '生存' : (p.isAsh ? '⚱️ 灰化死亡' : '💀 死亡')}
+            </div>
+          </div>
+        </div>
+        <div class="result-role-box">
+          ${roleIconsHtml}
+          <span>${rd.text}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  document.getElementById('resultLogBox').innerHTML = renderTimelineLogs(timeline, players, COLORS);
+}
+
+// タイムラインログからもインベスティゲーターの調査結果を復元・同期（再接続時対策）
+function syncInvResultsFromTimeline(view) {
+  if (!view || !view.me || view.me.er !== 'inv' || !Array.isArray(view.timeline)) return;
+  view.timeline.forEach(entry => {
+    if (!entry || entry.scope !== 'private' || !Array.isArray(entry.icons)) return;
+    const roleIcons = entry.icons.filter(ic => ic.type === 'role');
+    const charIcons = entry.icons.filter(ic => ic.type === 'char');
+    const hasInvIcon = roleIcons.some(ic => ic.role === 'inv');
+    if (hasInvIcon && roleIcons.length >= 3 && charIcons.length >= 1) {
+      const targetChar = charIcons[charIcons.length - 1];
+      const choices = roleIcons.slice(-2).map(ic => ({ c: ic.c, role: ic.role }));
+      if (!invHouseResults.has(targetChar.id)) {
+        invHouseResults.set(targetChar.id, choices);
+      }
+    }
+  });
+}
+
+// 夜の歩行＆アクション再生管理（1イベント = PHASE_TIMERS.nightEvent = 7800ms）
+function startNightEventSteps(ev, idx) {
+  clearNightSubTimers();
+  activeNightEvent = ev;
+  activeNightEventIdx = idx;
+  nightSubStep = 0; // 0: 往路歩行 (0ms 〜 3000ms)
+
+  // 3000ms: 家の前に到着（ポリスは0.7s待機開始 / キル・ドクター訪問はドアから入室）
+  nightSubTimers.push(setTimeout(() => {
+    nightSubStep = 1;
+    if (ev && ev.kind === 'bomb_blast' && Array.isArray(ev.targets)) {
+      ev.targets.forEach(tid => revealedBombedHouses.add(tid));
+    }
+    if (ev && ev.kind === 'act' && ev.role === 'inv' && Array.isArray(ev.choiceIcons)) {
+      invHouseResults.set(ev.target, ev.choiceIcons);
+    }
+    if (currentState) renderGame(currentState, currentState.hostUid === uid);
+  }, 3000));
+
+  // 3700ms: 到着から0.7秒経過（ポリス成功時は相手がドアから手前に出てきて⭕表示）
+  nightSubTimers.push(setTimeout(() => {
+    nightSubStep = 2;
+    if (currentState) renderGame(currentState, currentState.hostUid === uid);
+  }, 3700));
+
+  // 4000ms: 到着から1.0秒経過（ポリス失敗時はさらに0.3秒待ったあと❌表示）
+  nightSubTimers.push(setTimeout(() => {
+    nightSubStep = 3;
+    if (currentState) renderGame(currentState, currentState.hostUid === uid);
+  }, 4000));
+
+  // 5400ms: 帰還フェーズ開始（家へ歩いて戻る）
+  nightSubTimers.push(setTimeout(() => {
+    nightSubStep = 4;
+    if (currentState) renderGame(currentState, currentState.hostUid === uid);
+  }, 5400));
+}
+
+function syncNightPlayback(state) {
+  if (state.phaseTransition !== 'nightAction') {
+    if (nightPlaybackKey !== null) clearNightPlayback();
+    return;
+  }
+  const events = (state.view && state.view.myNightEvents) || [];
+  const key = `${state.view.gid}:${state.view.day}`;
+  if (nightPlaybackKey === key) return;
+
+  clearNightPlayback();
+  nightPlaybackKey = key;
+  if (!events.length) return;
+
+  let idx = 0;
+  startNightEventSteps(events[0], 0);
+  nightPlaybackTimer = setInterval(() => {
+    idx++;
+    if (idx < events.length) {
+      startNightEventSteps(events[idx], idx);
+      if (currentState) renderGame(currentState, currentState.hostUid === uid);
+    } else {
+      clearInterval(nightPlaybackTimer);
+      nightPlaybackTimer = null;
+      activeNightEvent = null;
+      activeNightEventIdx = -1;
+      if (currentState) renderGame(currentState, currentState.hostUid === uid);
+    }
+  }, PHASE_TIMERS.nightEvent);
+}
+
+// 朝の死体ズーム＆役職ポップ再生管理（PHASE_TIMERS.morningDeath = 4800ms / 死体）
+function syncMorningDeathsPlayback(state) {
+  if (state.phaseTransition !== 'morningDeaths') {
+    if (morningDeathKey !== null) {
+      if (morningDeathTimer) { clearInterval(morningDeathTimer); morningDeathTimer = null; }
+      activeMorningDeath = null;
+      morningDeathKey = null;
+    }
+    return;
+  }
+  const deaths = (state.view && state.view.newDeaths) || [];
+  const key = `${state.view.gid}:${state.view.day}:deaths`;
+  if (morningDeathKey === key) return;
+
+  if (morningDeathTimer) { clearInterval(morningDeathTimer); morningDeathTimer = null; }
+  morningDeathKey = key;
+  if (!deaths.length) return;
+
+  let idx = 0;
+  activeMorningDeath = deaths[0];
+  morningDeathTimer = setInterval(() => {
+    idx++;
+    if (idx < deaths.length) {
+      activeMorningDeath = deaths[idx];
+      if (currentState) renderGame(currentState, currentState.hostUid === uid);
+    } else {
+      clearInterval(morningDeathTimer);
+      morningDeathTimer = null;
+      activeMorningDeath = null;
+      if (currentState) renderGame(currentState, currentState.hostUid === uid);
+    }
+  }, PHASE_TIMERS.morningDeath);
+}
+
+// 朝のねずみ指さし再生管理（PHASE_TIMERS.morningRat = 4800ms / 件）
+function syncMorningRatPlayback(state) {
+  if (state.phaseTransition !== 'morningRat') {
+    if (morningRatKey !== null) {
+      if (morningRatTimer) { clearInterval(morningRatTimer); morningRatTimer = null; }
+      activeMorningRat = null;
+      morningRatKey = null;
+    }
+    return;
+  }
+  const rats = (state.view && state.view.morningRats) || [];
+  const key = `${state.view.gid}:${state.view.day}:rats`;
+  if (morningRatKey === key) return;
+
+  if (morningRatTimer) { clearInterval(morningRatTimer); morningRatTimer = null; }
+  morningRatKey = key;
+  if (!rats.length) return;
+
+  let idx = 0;
+  activeMorningRat = rats[0];
+  morningRatTimer = setInterval(() => {
+    idx++;
+    if (idx < rats.length) {
+      activeMorningRat = rats[idx];
+      if (currentState) renderGame(currentState, currentState.hostUid === uid);
+    } else {
+      clearInterval(morningRatTimer);
+      morningRatTimer = null;
+      activeMorningRat = null;
+      if (currentState) renderGame(currentState, currentState.hostUid === uid);
+    }
+  }, PHASE_TIMERS.morningRat);
+}
+
+// 移動座標からキャラの向き（左向き・右向き）を更新して適用
+function applyCharacterPositionAndFacing(el, key, leftPct, topPct) {
+  const prevX = charLastX.get(key);
+  if (prevX !== undefined && Math.abs(leftPct - prevX) > 0.35) {
+    charFacing.set(key, leftPct < prevX ? -1 : 1);
+  }
+  charLastX.set(key, leftPct);
+  const facing = charFacing.get(key) || 1;
+  const spriteEl = el.querySelector('.char-sprite');
+  if (spriteEl) {
+    spriteEl.style.setProperty('--facing', facing);
+  }
+  el.style.left = leftPct + '%';
+  el.style.top = topPct + '%';
+}
+
+function renderGame(state, isHost) {
+  const { view, submitted, myNightAction, progress, meta, phaseTransition } = state;
+  if (!view) return;
+  syncNightPlayback(state);
+  syncMorningDeathsPlayback(state);
+  syncMorningRatPlayback(state);
+
+  const { gid, me, players, timeline, day, ph, over, lastExile, tally, skipCount, majorityNeeded, myVote, roleBar } = view;
+  const COLORS = meta.COLORS;
+
+  if (renderedGid !== gid) {
+    invHouseResults.clear();
+    lastFxKey = null;
+  }
+  syncInvResultsFromTimeline(view);
+
+  // ゲーム開始時の大きな役職ポップアップ表示
+  const revealOverlay = document.getElementById('roleRevealOverlay');
+  if (phaseTransition === 'roleReveal') {
+    const myCol = COLORS[me.color] || COLORS[0];
+    const cardEl = document.getElementById('roleRevealCard');
+    cardEl.className = 'role-reveal-card camp-' + me.camp;
+    document.getElementById('roleRevealChar').innerHTML = renderCharacterSvg(myCol, false, 118, false);
+    document.getElementById('roleRevealIcon').innerHTML = renderRoleIcon(me.camp, me.er, 'lg', false);
+    const nameEl = document.getElementById('roleRevealName');
+    nameEl.className = 'role-reveal-name camp-' + me.camp;
+    nameEl.textContent = me.label;
+    revealOverlay.classList.remove('hidden');
+  } else {
+    revealOverlay.classList.add('hidden');
+  }
+
+  // 決着オーバーレイは、吊りや夜・朝などのモーション完了後に表示
+  const finishOverlay = document.getElementById('finishOverlay');
+  if (phaseTransition === 'toResult') {
+    finishOverlay.classList.remove('hidden');
+    closeModal();
+  } else {
+    finishOverlay.classList.add('hidden');
+  }
+
+  // ホスト用ボタン表示
+  document.getElementById('forceBtn').classList.toggle('hidden', !isHost || !!over || !!phaseTransition);
+  document.getElementById('debugAbortBtn').classList.toggle('hidden', !isHost);
+
+  // 上部の設定役職アイコン一覧（ホバー＆クリックで能力説明表示）
+  document.getElementById('topRoleBar').innerHTML = (roleBar || []).map(item => `
+    <div class="role-bar-item"
+         data-camp="${item.c}" data-role="${item.role || ''}"
+         onmouseenter="onRoleIconEnter(this)"
+         onmouseleave="onRoleIconLeave()"
+         onclick="onRoleIconClick(event, this)">
+      ${renderRoleIcon(item.c, item.role, 'sm', item.isMe)}
+      ${item.isMe ? '<span class="role-bar-me-tag">自分</span>' : ''}
+    </div>
+  `).join('');
+
+  // 自分の役職アイコン＆ステータス（ここもホバー＆クリックで能力説明表示）
+  const myHeaderBox = document.getElementById('myRoleHeaderBox');
+  myHeaderBox.dataset.camp = me.camp;
+  myHeaderBox.dataset.role = me.er || '';
+  myHeaderBox.onmouseenter = () => onRoleIconEnter(myHeaderBox);
+  myHeaderBox.onmouseleave = () => onRoleIconLeave();
+  myHeaderBox.onclick = (e) => onRoleIconClick(e, myHeaderBox);
+
+  document.getElementById('myRoleIconWrap').innerHTML = renderRoleIcon(me.camp, me.er, 'md');
+  const badge = document.getElementById('myRoleBadge');
+  badge.textContent = me.label;
+  badge.className = 'badge c-' + me.camp;
+  document.getElementById('myStatus').textContent = me.alive ? '' : (me.isAsh ? '（⚱️ 灰になった）' : '（💀 死亡）');
+
+  // 役職行動再生中（nightAction）は文字を表示しない
+  const statusEl = document.getElementById('actionStatusText');
+  if (phaseTransition === 'nightAction') {
+    statusEl.textContent = '';
+  } else if (phaseTransition === 'morningDeaths') {
+    statusEl.textContent = activeMorningDeath
+      ? `💀 昨晩、${activeMorningDeath.name} が無残な姿で発見された…`
+      : '';
+  } else if (phaseTransition === 'morningRat') {
+    const rActor = activeMorningRat ? (players.find(p => p.id === activeMorningRat.actor)?.name || '') : '';
+    const rTarget = activeMorningRat ? (players.find(p => p.id === activeMorningRat.target)?.name || '') : '';
+    statusEl.textContent = activeMorningRat
+      ? `🐭 ${rActor} が ${rTarget} を調査したと指さしている！`
+      : '';
+  } else if (phaseTransition === 'exile') {
+    statusEl.textContent = `👢 ${lastExile ? lastExile.name : ''} が村から追放！`;
+  } else if (phaseTransition === 'roleReveal') {
+    statusEl.textContent = '🎭 役職確認中...';
+  } else if (phaseTransition === 'toNight') {
+    statusEl.textContent = '🌙 みんな家の中へ戻っています...';
+  } else if (phaseTransition === 'toDay') {
+    statusEl.textContent = '☀️ 朝になりました！広場へ集合';
+  } else if (over || !me.alive) {
+    statusEl.textContent = '';
+  } else if (ph === 'day') {
+    if (myVote !== undefined) {
+      const targetName = myVote >= 0 ? (players.find(p => p.id === myVote)?.name + ' に投票済み') : 'スキップ投票済み';
+      statusEl.textContent = '✔ ' + targetName + '（変更不可）';
+    } else if (me.thiefNotice) {
+      statusEl.textContent = `🎭 昨夜奪った役職は「${me.thiefNotice.label}」でした！`;
+    } else {
+      statusEl.textContent = '家またはキャラをタップして投票';
+    }
+  } else {
+    statusEl.textContent = myNightAction ? '✔ 行動選択済み（変更可）' : '家をタップして行動選択';
+  }
+
+  const wrap = document.getElementById('villageWrap');
+  const showNightVisual = (ph === 'night' || phaseTransition === 'toNight' || phaseTransition === 'nightAction');
+  wrap.classList.toggle('night-mode', showNightVisual);
+  document.body.classList.toggle('is-day', !showNightVisual);
+  document.body.classList.toggle('is-night', showNightVisual);
+  document.getElementById('daySky').classList.toggle('hidden', showNightVisual);
+  document.getElementById('nightSky').classList.toggle('hidden', !showNightVisual);
+
+  document.getElementById('phaseTitle').textContent = `Day ${day} ${showNightVisual ? '🌙 夜' : '☀️ 昼'}`;
+  document.getElementById('progressText').textContent = phaseTransition
+    ? ''
+    : (over ? 'ゲーム終了' : `${ph === 'day' ? '投票' : '行動'}完了: ${progress.done}/${progress.total}人`);
+
+  const skipCountBox = document.getElementById('skipCountBox');
+  if (ph === 'day' && !phaseTransition && !over) {
+    skipCountBox.classList.remove('hidden');
+    skipCountBox.textContent = day === 1
+      ? `スキップ票: ${skipCount || 0}`
+      : `過半数: ${majorityNeeded || 1}票 / スキップ: ${skipCount || 0}`;
+  } else {
+    skipCountBox.classList.add('hidden');
+  }
+
+  renderCenterActions(view, submitted, myNightAction, phaseTransition);
+
+  const housesLayer = document.getElementById('housesLayer');
+  const charsLayer = document.getElementById('charsLayer');
+  const fxLayer = document.getElementById('fxLayer');
+  const count = players.length;
+
+  const nightTargetId = (ph === 'night' && myNightAction && myNightAction.t != null) ? myNightAction.t : null;
+  const dayTargetId = (ph === 'day' && myVote != null && myVote >= 0) ? myVote : null;
+
+  let housesHtml = '';
+  let fxHtml = '';
+
+  if (renderedGid !== gid) {
+    renderedGid = gid;
+    charsLayer.innerHTML = players.map(p => `
+      <div id="char-${p.id}" class="char-node" onclick="onHouseClick(${p.id})">
+        <div class="char-sprite"></div>
+        <div class="char-tag"></div>
+      </div>
+    `).join('') + [0, 1].map(gi => `
+      <div id="guest-char-${gi}" class="char-node inside-house" style="pointer-events:none;">
+        <div class="char-sprite">${renderCharacterSvg(GRAY_COLOR, false, 56, false)}</div>
+      </div>
+    `).join('');
+  }
+
+  const currentPhaseKey = phaseTransition || ph;
+  const isEnteringDay = (phaseTransition === 'toDay' && prevPhase !== 'toDay');
+  const isEnteringNight = (phaseTransition === 'toNight' && prevPhase !== 'toNight');
+  const isExiling = (phaseTransition === 'exile' && lastExile != null);
+  const isNightMotion = (phaseTransition === 'nightAction');
+  const isMorningDeaths = (phaseTransition === 'morningDeaths');
+  const isMorningRat = (phaseTransition === 'morningRat');
+
+  // 各プレイヤーの座標・奥行き計算（ポリス待機位置とターゲット進出位置をずらして重なり防止）
+  const posMap = new Map();
+  players.forEach((p, idx) => {
+    const angle = (2 * Math.PI * idx / count) - (Math.PI / 2);
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const depthRatio = (sin + 1) / 2;
+    const depthScale = ELLIPSE_CONFIG.minScale + depthRatio * (ELLIPSE_CONFIG.maxScale - ELLIPSE_CONFIG.minScale);
+    const zBase = Math.round(10 + depthRatio * 18);
+
+    const doorLeft = 50 + ELLIPSE_CONFIG.houseRx * cos;
+    const doorTop = 50 + ELLIPSE_CONFIG.houseRy * sin + 2.2;
+    const frontLeft = 50 + (ELLIPSE_CONFIG.houseRx - 8.5) * cos;
+    const frontTop = 50 + (ELLIPSE_CONFIG.houseRy - 8.0) * sin;
+    const targetStopLeft = 50 + (ELLIPSE_CONFIG.houseRx - 5.2) * cos;
+    const targetStopTop = 50 + (ELLIPSE_CONFIG.houseRy - 5.0) * sin;
+    const policeStopLeft = 50 + (ELLIPSE_CONFIG.houseRx - 11.8) * cos;
+    const policeStopTop = 50 + (ELLIPSE_CONFIG.houseRy - 11.2) * sin;
+
+    posMap.set(p.id, {
+      hLeft: 50 + ELLIPSE_CONFIG.houseRx * cos,
+      hTop: 50 + ELLIPSE_CONFIG.houseRy * sin,
+      doorLeft,
+      doorTop,
+      frontLeft,
+      frontTop,
+      targetStopLeft,
+      targetStopTop,
+      policeStopLeft,
+      policeStopTop,
+      pLeft: 50 + ELLIPSE_CONFIG.plazaRx * cos,
+      pTop: 50 + ELLIPSE_CONFIG.plazaRy * sin,
+      dLeft: 50 + ELLIPSE_CONFIG.deadRx * cos,
+      dTop: 50 + ELLIPSE_CONFIG.deadRy * sin,
+      depthScale,
+      zBase
+    });
+  });
+
+  // カメラズーム制御
+  const centerBox = document.getElementById('villageCenter');
+  centerBox.classList.toggle('dimmed-center', isExiling || isMorningDeaths || isMorningRat);
+
+  let nextFxKey = 'none';
+
+  if (isExiling) {
+    wrap.style.transform = 'scale(1.22)';
+  } else if (isMorningDeaths && activeMorningDeath) {
+    const dPos = posMap.get(activeMorningDeath.id);
+    if (dPos) {
+      const tx = (50 - dPos.dLeft) * 0.45;
+      const ty = (50 - dPos.dTop) * 0.45;
+      wrap.style.transform = `scale(1.38) translate(${tx}%, ${ty}%)`;
+      nextFxKey = `mdeath:${gid}:${day}:${activeMorningDeath.id}`;
+      fxHtml += `
+        <div class="death-reveal-popup" style="left:${dPos.dLeft}%; top:${dPos.dTop}%;">
+          <div style="font-size:10px; color:#fca5a5; font-weight:bold;">${activeMorningDeath.name}</div>
+          ${renderRoleIcon(activeMorningDeath.c, activeMorningDeath.role, 'md', false)}
+          <div style="font-size:13px; font-weight:900; color:#fbbf24;">${activeMorningDeath.roleText}</div>
+        </div>
+      `;
+    }
+  } else if (isMorningRat && activeMorningRat) {
+    const tPos = posMap.get(activeMorningRat.target);
+    if (tPos) {
+      const midX = (50 + tPos.pLeft) / 2;
+      const midY = (52 + tPos.pTop) / 2;
+      const tx = (50 - midX) * 0.55;
+      const ty = (52 - midY) * 0.55;
+      wrap.style.transform = `scale(1.32) translate(${tx}%, ${ty}%)`;
+
+      const handX = 50 + (tPos.pLeft - 50) * 0.48;
+      const handY = 52 + (tPos.pTop - 52) * 0.48;
+      nextFxKey = `mrat:${gid}:${day}:${activeMorningRat.actor}:${activeMorningRat.target}`;
+      fxHtml += `
+        <svg class="rat-point-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <line class="rat-point-line" x1="50" y1="52" x2="${tPos.pLeft}" y2="${tPos.pTop}"/>
+        </svg>
+        <div class="rat-point-hand" style="left:${handX}%; top:${handY}%;">👉</div>
+      `;
+    }
+  } else {
+    wrap.style.transform = 'scale(1) translate(0%, 0%)';
+  }
+
+  // 追放時の役職表示ポップアップ
+  if (isExiling) {
+    nextFxKey = `exile:${gid}:${day}:${lastExile.id}`;
+    fxHtml += `
+      <div class="exile-role-popup">
+        <div style="font-size:11px; color:#cbd5e1; font-weight:bold;">${lastExile.name} の正体</div>
+        ${renderRoleIcon(lastExile.c, lastExile.role, 'md', false)}
+        <div style="font-size:15px; font-weight:900; color:#fbbf24;">${lastExile.roleText}</div>
+      </div>
+    `;
+  }
+
+  const charOverrides = new Map();
+  let guestOverride = null;
+
+  if (isNightMotion && activeNightEvent) {
+    const ev = activeNightEvent;
+    const isOk = ev.result === 'ok';
+    const polCamp = ev.camp || 'g';
+    const trkCamp = ev.camp || 'g';
+
+    // エフェクトDOMの再生成を1イベントにつき1回に制限（2回再生バグ防止）
+    let fxStepGroup = 0;
+    if (ev.kind === 'act' && ev.role === 'pol') {
+      fxStepGroup = isOk ? (nightSubStep >= 2 ? 2 : 0) : (nightSubStep >= 3 ? 3 : 0);
+    } else if (ev.kind === 'blocked_pol') {
+      fxStepGroup = nightSubStep >= 2 ? 2 : 0;
+    } else {
+      fxStepGroup = (nightSubStep >= 1 && nightSubStep <= 3) ? 1 : 0;
+    }
+    nextFxKey = fxStepGroup > 0 ? `night:${gid}:${day}:${activeNightEventIdx}:${fxStepGroup}` : 'none';
+
+    if (ev.kind === 'bomb_blast') {
+      const targets = ev.targets || [];
+      const killedSet = new Set(ev.killedTargets || []);
+      targets.forEach(tid => {
+        const tPos = posMap.get(tid);
+        if (!tPos) return;
+        if (killedSet.has(tid)) {
+          charOverrides.set(tid, {
+            left: tPos.frontLeft,
+            top: tPos.frontTop,
+            mode: 'acting',
+            walking: false,
+            inside: false,
+            deadLook: nightSubStep >= 1,
+            ashLook: false
+          });
+        }
+        if (nightSubStep >= 1 && nightSubStep <= 3) {
+          fxHtml += `
+            <div class="bomb-blast-fx" style="left:${tPos.hLeft}%; top:${tPos.hTop}%;">
+              <div class="bomb-blast-fire">💥🔥</div>
+              <div class="night-motion-badge" style="border-color:#ef4444;">
+                ${renderRoleIcon('b', 'bom', 'sm', false)}
+              </div>
+            </div>
+          `;
+        }
+      });
+    } else if (ev.kind === 'act') {
+      const aPos = posMap.get(ev.actor);
+      const tPos = posMap.get(ev.target);
+      if (aPos && tPos) {
+        if (ev.role === 'pol') {
+          if (nightSubStep === 0) {
+            charOverrides.set(ev.actor, { left: tPos.policeStopLeft, top: tPos.policeStopTop, mode: 'acting', walking: true, inside: false, deadLook: false, ashLook: false });
+          } else if (nightSubStep === 1) {
+            charOverrides.set(ev.actor, { left: tPos.policeStopLeft, top: tPos.policeStopTop, mode: 'acting', walking: false, inside: false, deadLook: false, ashLook: false });
+          } else if (nightSubStep === 2 || nightSubStep === 3) {
+            charOverrides.set(ev.actor, { left: tPos.policeStopLeft, top: tPos.policeStopTop, mode: 'acting', walking: false, inside: false, deadLook: false, ashLook: false });
+            if (isOk) {
+              charOverrides.set(ev.target, { left: tPos.targetStopLeft, top: tPos.targetStopTop, mode: 'step-out', walking: false, inside: false, deadLook: false, ashLook: false });
+              fxHtml += `
+                <div class="night-motion-fx" style="left:${tPos.policeStopLeft}%; top:${tPos.policeStopTop}%;">
+                  <div class="night-motion-badge" style="border-color:#2ea043;">
+                    ${renderRoleIcon(polCamp, 'pol', 'sm', false)}
+                    <span>⭕</span>
+                  </div>
+                </div>
+              `;
+            } else if (nightSubStep === 3) {
+              fxHtml += `
+                <div class="night-motion-fx" style="left:${tPos.policeStopLeft}%; top:${tPos.policeStopTop}%;">
+                  <div class="night-motion-badge" style="border-color:#94a3b8;">
+                    ${renderRoleIcon(polCamp, 'pol', 'sm', false)}
+                    <span>❌</span>
+                  </div>
+                </div>
+              `;
+            }
+          } else {
+            charOverrides.set(ev.actor, { left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false });
+            if (isOk) {
+              charOverrides.set(ev.target, { left: tPos.doorLeft, top: tPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false });
+            }
+          }
+        } else if (ev.role === 'trk') {
+          if (nightSubStep === 0) {
+            charOverrides.set(ev.actor, { left: tPos.frontLeft, top: tPos.frontTop, mode: 'acting', walking: true, inside: false, deadLook: false, ashLook: false });
+          } else if (nightSubStep >= 1 && nightSubStep <= 3) {
+            charOverrides.set(ev.actor, { left: tPos.frontLeft, top: tPos.frontTop, mode: 'acting', walking: false, inside: false, deadLook: false, ashLook: false });
+            const destIds = ev.destIds || [];
+            if (isOk && destIds.length > 0) {
+              destIds.forEach(did => {
+                const dPos = posMap.get(did);
+                if (!dPos) return;
+                for (let s = 1; s <= 5; s++) {
+                  const r = s / 6;
+                  const fx = tPos.hLeft + (dPos.hLeft - tPos.hLeft) * r;
+                  const fy = tPos.hTop + (dPos.hTop - tPos.hTop) * r;
+                  fxHtml += `<div class="tracker-footprint" style="left:${fx}%; top:${fy}%; animation-delay:${(s * 0.14).toFixed(2)}s;">👣</div>`;
+                }
+              });
+            }
+            fxHtml += `
+              <div class="night-motion-fx" style="left:${tPos.frontLeft}%; top:${tPos.frontTop}%;">
+                <div class="night-motion-badge" style="border-color:${isOk ? '#2ea043' : '#94a3b8'};">
+                  ${renderRoleIcon(trkCamp, 'trk', 'sm', false)}
+                  <span>${isOk ? '⭕' : '❌'}</span>
+                </div>
+              </div>
+            `;
+          } else {
+            charOverrides.set(ev.actor, { left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false });
+          }
+        } else if (ev.role === 'doc' || ev.role === 'imp' || ev.role === '' || ev.role === 'sk' || ev.role === 'thf') {
+          if (nightSubStep === 0) {
+            charOverrides.set(ev.actor, { left: tPos.frontLeft, top: tPos.frontTop, mode: 'acting', walking: true, inside: false, deadLook: false, ashLook: false });
+          } else if (nightSubStep >= 1 && nightSubStep <= 3) {
+            charOverrides.set(ev.actor, { left: tPos.doorLeft, top: tPos.doorTop, mode: 'entering-door', walking: false, inside: false, deadLook: false, ashLook: false });
+            const borderCol = isOk ? (ev.role === 'doc' ? '#2ea043' : '#da3633') : '#94a3b8';
+            fxHtml += `
+              <div class="night-motion-fx" style="left:${tPos.hLeft}%; top:${tPos.hTop}%;">
+                <div class="night-motion-badge" style="border-color:${borderCol};">
+                  ${ev.role ? renderRoleIcon(ev.camp, ev.role, 'sm', false) : renderRoleIcon('n', 'skull', 'sm', false)}
+                  <span>${isOk ? '⭕' : '❌'}</span>
+                </div>
+              </div>
+            `;
+          } else {
+            charOverrides.set(ev.actor, { left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false });
+          }
+        } else {
+          if (nightSubStep === 0) {
+            charOverrides.set(ev.actor, { left: tPos.frontLeft, top: tPos.frontTop, mode: 'acting', walking: true, inside: false, deadLook: false, ashLook: false });
+          } else if (nightSubStep >= 1 && nightSubStep <= 3) {
+            charOverrides.set(ev.actor, { left: tPos.frontLeft, top: tPos.frontTop, mode: 'acting', walking: false, inside: false, deadLook: false, ashLook: false });
+            let badgeExtra = '';
+            let borderCol = '#fbbf24';
+            if (ev.role === 'inv' && Array.isArray(ev.choiceIcons)) {
+              badgeExtra = ev.choiceIcons.map(ic => renderRoleIcon(ic.c, ic.role, 'sm', false)).join('');
+            } else if (ev.role === 'look') {
+              const vids = ev.visitorIds || [];
+              if (vids.length > 0) {
+                badgeExtra = vids.map(vid => {
+                  const vp = players.find(x => x.id === vid);
+                  const vc = vp ? (COLORS[vp.color] || COLORS[0]) : COLORS[0];
+                  return renderCharacterSvg(vc, false, 24, false);
+                }).join('');
+                borderCol = '#2ea043';
+              } else {
+                badgeExtra = '<span>❌</span>';
+                borderCol = '#94a3b8';
+              }
+            } else if (['trap', 'mag', 'bom', 'prov', 'cln', 'blm'].includes(ev.role)) {
+              badgeExtra = `<span>${isOk ? '⭕' : '❌'}</span>`;
+              borderCol = isOk ? '#2ea043' : '#94a3b8';
+            }
+            fxHtml += `
+              <div class="night-motion-fx" style="left:${tPos.frontLeft}%; top:${tPos.frontTop}%;">
+                <div class="night-motion-badge" style="border-color:${borderCol};">
+                  ${renderRoleIcon(ev.camp, ev.role, 'sm', false)}
+                  ${badgeExtra}
+                </div>
+              </div>
+            `;
+          } else {
+            charOverrides.set(ev.actor, { left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false });
+          }
+        }
+      }
+    } else if (ev.kind === 'self_act') {
+      const aPos = posMap.get(ev.actor);
+      if (aPos) {
+        if (nightSubStep === 0) {
+          charOverrides.set(ev.actor, { left: aPos.frontLeft, top: aPos.frontTop, mode: 'acting', walking: true, inside: false, deadLook: false, ashLook: false });
+        } else if (nightSubStep >= 1 && nightSubStep <= 3) {
+          charOverrides.set(ev.actor, { left: aPos.frontLeft, top: aPos.frontTop, mode: 'acting', walking: false, inside: false, deadLook: false, ashLook: false });
+          if (ev.role === 'sur') {
+            fxHtml += `
+              <div class="night-motion-fx" style="left:${aPos.frontLeft}%; top:${aPos.frontTop}%;">
+                ${renderBreakingShieldSvg()}
+                <div class="night-motion-badge" style="border-color:#388bfd;">
+                  ${renderRoleIcon('b', 'sur', 'sm', false)}
+                </div>
+              </div>
+            `;
+          }
+        } else {
+          charOverrides.set(ev.actor, { left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false });
+        }
+      }
+    } else if (ev.kind === 'killed') {
+      const vPos = posMap.get(ev.target);
+      if (vPos) {
+        if (nightSubStep === 0) {
+          guestOverride = { left: vPos.frontLeft, top: vPos.frontTop, mode: 'acting', walking: true, inside: false };
+        } else if (nightSubStep >= 1 && nightSubStep <= 3) {
+          guestOverride = { left: vPos.doorLeft, top: vPos.doorTop, mode: 'entering-door', walking: false, inside: false };
+          fxHtml += `
+            <div class="night-motion-fx" style="left:${vPos.hLeft}%; top:${vPos.hTop}%;">
+              <div class="night-motion-badge" style="border-color:#da3633;">
+                ${ev.role ? renderRoleIcon(ev.camp, ev.role, 'sm', false) : renderRoleIcon('n', 'skull', 'sm', false)}
+              </div>
+            </div>
+          `;
+        } else {
+          guestOverride = { left: 50, top: 50, mode: 'returning', walking: true, inside: false };
+          charOverrides.set(ev.target, { left: vPos.frontLeft, top: vPos.frontTop, mode: 'acting', walking: false, inside: false, deadLook: true, ashLook: false });
+        }
+      }
+    } else if (ev.kind === 'self_ash') {
+      const vPos = posMap.get(ev.target);
+      if (vPos) {
+        const isDown = nightSubStep >= 1;
+        charOverrides.set(ev.target, { left: vPos.frontLeft, top: vPos.frontTop, mode: 'acting', walking: nightSubStep === 0, inside: false, deadLook: isDown, ashLook: isDown });
+        if (nightSubStep >= 1 && nightSubStep <= 3) {
+          fxHtml += `
+            <div class="night-motion-fx" style="left:${vPos.frontLeft}%; top:${vPos.frontTop}%;">
+              <div class="night-motion-badge" style="border-color:#da3633;">
+                ${renderRoleIcon('b', 'mag', 'sm', false)}
+                <span>❌</span>
+              </div>
+            </div>
+          `;
+        }
+      }
+    } else if (ev.kind === 'revived') {
+      const vPos = posMap.get(ev.target);
+      if (vPos) {
+        if (nightSubStep === 0) {
+          guestOverride = { left: vPos.frontLeft, top: vPos.frontTop, mode: 'acting', walking: true, inside: false };
+        } else if (nightSubStep >= 1 && nightSubStep <= 3) {
+          guestOverride = { left: vPos.doorLeft, top: vPos.doorTop, mode: 'entering-door', walking: false, inside: false };
+          fxHtml += `
+            <div class="night-motion-fx" style="left:${vPos.hLeft}%; top:${vPos.hTop}%;">
+              <div class="night-motion-badge" style="border-color:#2ea043;">
+                ${renderRoleIcon('g', 'doc', 'sm', false)}
+                <span>${ev.saved ? '⭕' : '❌'}</span>
+              </div>
+            </div>
+          `;
+        } else {
+          guestOverride = { left: 50, top: 50, mode: 'returning', walking: true, inside: false };
+        }
+      }
+    } else if (ev.kind === 'blocked_pol') {
+      const vPos = posMap.get(ev.target);
+      if (vPos) {
+        if (nightSubStep === 0) {
+          guestOverride = { left: vPos.policeStopLeft, top: vPos.policeStopTop, mode: 'acting', walking: true, inside: false };
+        } else if (nightSubStep === 1) {
+          guestOverride = { left: vPos.policeStopLeft, top: vPos.policeStopTop, mode: 'acting', walking: false, inside: false };
+        } else if (nightSubStep === 2 || nightSubStep === 3) {
+          guestOverride = { left: vPos.policeStopLeft, top: vPos.policeStopTop, mode: 'acting', walking: false, inside: false };
+          charOverrides.set(ev.target, { left: vPos.targetStopLeft, top: vPos.targetStopTop, mode: 'step-out', walking: false, inside: false, deadLook: false, ashLook: false });
+          fxHtml += `
+            <div class="night-motion-fx" style="left:${vPos.policeStopLeft}%; top:${vPos.policeStopTop}%;">
+              <div class="night-motion-badge" style="border-color:#2ea043;">
+                ${renderRoleIcon('g', 'pol', 'sm', false)}
+                <span>⭕</span>
+              </div>
+            </div>
+          `;
+        } else {
+          guestOverride = { left: 50, top: 50, mode: 'returning', walking: true, inside: false };
+          charOverrides.set(ev.target, { left: vPos.doorLeft, top: vPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false });
+        }
+      }
+    } else if (ev.kind === 'trapped') {
+      const hPos = posMap.get(ev.house != null ? ev.house : ev.target);
+      const vPos = posMap.get(ev.target);
+      if (hPos && vPos) {
+        if (nightSubStep === 0) {
+          charOverrides.set(ev.target, { left: hPos.frontLeft, top: hPos.frontTop, mode: 'acting', walking: true, inside: false, deadLook: false, ashLook: false });
+        } else if (nightSubStep >= 1 && nightSubStep <= 3) {
+          charOverrides.set(ev.target, { left: hPos.frontLeft, top: hPos.frontTop, mode: 'acting', walking: false, inside: false, deadLook: false, ashLook: false });
+          fxHtml += `
+            <div class="night-motion-fx" style="left:${hPos.frontLeft}%; top:${hPos.frontTop}%;">
+              <div class="night-motion-badge" style="border-color:#2ea043;">
+                ${renderRoleIcon('g', 'trap', 'sm', false)}
+                <span>❌</span>
+              </div>
+            </div>
+          `;
+        } else {
+          charOverrides.set(ev.target, { left: vPos.doorLeft, top: vPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false });
+        }
+      }
+    }
+  }
+
+  const guestEl0 = document.getElementById('guest-char-0');
+  if (guestEl0) {
+    if (guestOverride) {
+      const wasHidden = guestEl0.classList.contains('inside-house') && guestOverride.mode === 'acting';
+      if (wasHidden) {
+        guestEl0.style.transition = 'none';
+        guestEl0.classList.remove('inside-house', 'night-acting', 'night-returning', 'night-entering-door', 'is-walking');
+        applyCharacterPositionAndFacing(guestEl0, 'guest-0', 50, 50);
+        void guestEl0.offsetWidth;
+        guestEl0.style.transition = '';
+      }
+      guestEl0.style.zIndex = 46;
+      guestEl0.classList.toggle('night-acting', guestOverride.mode === 'acting');
+      guestEl0.classList.toggle('night-returning', guestOverride.mode === 'returning');
+      guestEl0.classList.toggle('night-entering-door', guestOverride.mode === 'entering-door');
+      guestEl0.classList.toggle('is-walking', !!guestOverride.walking);
+      guestEl0.classList.toggle('inside-house', !!guestOverride.inside);
+      applyCharacterPositionAndFacing(guestEl0, 'guest-0', guestOverride.left, guestOverride.top);
+    } else {
+      guestEl0.style.transition = 'none';
+      guestEl0.classList.remove('night-acting', 'night-returning', 'night-entering-door', 'is-walking');
+      guestEl0.classList.add('inside-house');
+      applyCharacterPositionAndFacing(guestEl0, 'guest-0', 50, 50);
+      void guestEl0.offsetWidth;
+      guestEl0.style.transition = '';
+    }
+  }
+
+  const pendingDeathSet = new Set((view.newDeaths || []).map(d => d.id));
+
+  players.forEach((p) => {
+    const pos = posMap.get(p.id);
+    const { hLeft, hTop, doorLeft, doorTop, pLeft, pTop, dLeft, dTop, depthScale, zBase } = pos;
+
+    const pColor = COLORS[p.color] || COLORS[0];
+    const isMe = p.id === me.id;
+    const isSelected = (nightTargetId === p.id) || (dayTargetId === p.id);
+    const votes = tally[p.id] || 0;
+
+    const isBeingExiled = isExiling && lastExile.id === p.id;
+    const isGhostTargetNow = isExiling && lastExile.ghostVictimId === p.id;
+    let visualAlive = p.alive || isBeingExiled || isGhostTargetNow || isNightMotion;
+    let visualAsh = !!p.isAsh && !isNightMotion;
+
+    const ov = charOverrides.get(p.id);
+    if (ov) {
+      visualAlive = !ov.deadLook;
+      visualAsh = !!ov.ashLook;
+    }
+
+    const isHouseBombed = isNightMotion
+      ? (!!p.bombed && revealedBombedHouses.has(p.id))
+      : !!p.bombed;
+
+    const isNewlyDead = pendingDeathSet.has(p.id);
+    const isCurrentZoomDeath = isMorningDeaths && activeMorningDeath && activeMorningDeath.id === p.id;
+    const hideDeathRoleYet = (phaseTransition === 'toDay' || isMorningDeaths) && isNewlyDead && !isCurrentZoomDeath;
+
+    let overlayIcon = '';
+    if (!visualAlive) overlayIcon = visualAsh ? '⚱️' : '🪦';
+    else if (nightTargetId === p.id) overlayIcon = '🎯';
+    else if (dayTargetId === p.id) overlayIcon = '🗳️';
+    else if (p.mate) overlayIcon = '🔪';
+
+    const subText = !visualAlive
+      ? (hideDeathRoleYet ? '???' : (p.rev ? p.rev.t : '死亡'))
+      : (isMe ? 'あなた' : (p.mate ? '仲間' : ''));
+
+    const invChoices = invHouseResults.get(p.id);
+    const invResultHtml = (invChoices && invChoices.length > 0) ? `
+      <div class="house-inv-results" title="インベスティゲーター調査結果">
+        ${invChoices.map(ic => renderRoleIcon(ic.c, ic.role, 'xs', false)).join('')}
+      </div>
+    ` : '';
+
+    const bombedCrackHtml = isHouseBombed ? `
+      <svg class="house-crack-svg" viewBox="0 0 50 30">
+        <path d="M12 2 L18 11 L13 18 L20 28 M36 4 L31 14 L38 22" fill="none" stroke="#71717a" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    ` : '';
+
+    housesHtml += `
+      <div class="house-node ${visualAlive ? '' : 'dead'} ${isHouseBombed ? 'bombed' : ''} ${isMe ? 'is-me' : ''} ${p.mate ? 'is-mate' : ''} ${isSelected ? 'selected-target' : ''}"
+           style="left:${hLeft}%; top:${hTop}%; z-index:${zBase}; --depth-scale:${depthScale.toFixed(3)};"
+           onclick="onHouseClick(${p.id})">
+        ${ph === 'day' && !phaseTransition ? `<div class="vote-pill ${votes > 0 ? 'has-votes' : ''}">🗳️ ${votes}</div>` : ''}
+        <div class="house-graphic">
+          <div class="house-ground-shadow"></div>
+          ${isHouseBombed ? `<div class="house-smoke">💨</div>` : ''}
+          <div class="house-roof" style="border-bottom-color:${visualAlive ? pColor.hex : '#4b5563'};"></div>
+          <div class="house-body">
+            ${bombedCrackHtml}
+            <div class="house-door"></div>
+            ${overlayIcon ? `<span class="house-icon-overlay">${overlayIcon}</span>` : ''}
+          </div>
+        </div>
+        <div class="house-name">${p.name}</div>
+        ${subText ? `<div class="house-sub">${subText}</div>` : ''}
+        ${invResultHtml}
+      </div>
+    `;
+
+    const el = document.getElementById('char-' + p.id);
+    if (!el) return;
+
+    const spriteEl = el.querySelector('.char-sprite');
+    const tagEl = el.querySelector('.char-tag');
+    const spriteStateKey = `${p.color}:${visualAlive ? 1 : 0}:${visualAsh ? 1 : 0}`;
+    if (spriteEl.dataset.state !== spriteStateKey) {
+      spriteEl.dataset.state = spriteStateKey;
+      spriteEl.innerHTML = renderCharacterSvg(pColor, !visualAlive, 56, visualAsh);
+    }
+    tagEl.style.color = pColor.light;
+    tagEl.textContent = p.name;
+
+    el.style.setProperty('--depth-scale', depthScale.toFixed(3));
+    el.style.zIndex = zBase + 4;
+    el.classList.toggle('is-dead', !visualAlive);
+    el.classList.toggle('is-ash', !visualAlive && visualAsh);
+
+    if (isBeingExiled) {
+      el.classList.remove('inside-house', 'entering-house', 'night-acting', 'night-returning', 'night-entering-door', 'night-step-out', 'is-walking');
+      el.style.setProperty('--sx', pLeft + '%');
+      el.style.setProperty('--sy', pTop + '%');
+      el.classList.add('exile-anim');
+    } else {
+      el.classList.remove('exile-anim');
+      if (ov) {
+        const wasInside = el.classList.contains('inside-house') && (ov.mode === 'acting' || ov.mode === 'step-out');
+        if (wasInside) {
+          el.style.transition = 'none';
+          el.classList.remove('inside-house', 'entering-house', 'night-acting', 'night-returning', 'night-entering-door', 'night-step-out', 'is-walking');
+          applyCharacterPositionAndFacing(el, p.id, doorLeft, doorTop);
+          void el.offsetWidth;
+          el.style.transition = '';
+        }
+        el.classList.remove('entering-house');
+        el.classList.toggle('night-acting', ov.mode === 'acting');
+        el.classList.toggle('night-returning', ov.mode === 'returning');
+        el.classList.toggle('night-entering-door', ov.mode === 'entering-door');
+        el.classList.toggle('night-step-out', ov.mode === 'step-out');
+        el.classList.toggle('inside-house', !!ov.inside);
+        el.classList.toggle('is-walking', !!ov.walking);
+        applyCharacterPositionAndFacing(el, p.id, ov.left, ov.top);
+      } else if (isMorningRat && activeMorningRat && activeMorningRat.actor === p.id) {
+        el.classList.remove('inside-house', 'entering-house', 'night-acting', 'night-returning', 'night-entering-door', 'night-step-out', 'is-walking');
+        el.style.zIndex = 48;
+        applyCharacterPositionAndFacing(el, p.id, 50, 52);
+      } else if (!visualAlive) {
+        el.classList.remove('inside-house', 'entering-house', 'night-acting', 'night-returning', 'night-entering-door', 'night-step-out', 'is-walking');
+        applyCharacterPositionAndFacing(el, p.id, dLeft, dTop);
+      } else if (isEnteringDay) {
+        el.style.transition = 'none';
+        el.classList.remove('entering-house', 'night-acting', 'night-returning', 'night-entering-door', 'night-step-out', 'is-walking');
+        applyCharacterPositionAndFacing(el, p.id, doorLeft, doorTop);
+        el.classList.add('inside-house');
+        void el.offsetWidth;
+        el.style.transition = '';
+        applyCharacterPositionAndFacing(el, p.id, pLeft, pTop);
+        el.classList.remove('inside-house');
+        el.classList.add('is-walking');
+      } else if (isEnteringNight) {
+        el.style.transition = 'none';
+        el.classList.remove('inside-house', 'entering-house', 'night-acting', 'night-returning', 'night-entering-door', 'night-step-out');
+        applyCharacterPositionAndFacing(el, p.id, pLeft, pTop);
+        void el.offsetWidth;
+        el.style.transition = '';
+        applyCharacterPositionAndFacing(el, p.id, doorLeft, doorTop);
+        el.classList.add('entering-house', 'is-walking');
+      } else if (phaseTransition === 'toNight') {
+        applyCharacterPositionAndFacing(el, p.id, doorLeft, doorTop);
+        el.classList.add('entering-house', 'is-walking');
+      } else if (ph === 'night' || isNightMotion) {
+        el.classList.remove('entering-house', 'night-acting', 'night-returning', 'night-entering-door', 'night-step-out', 'is-walking');
+        applyCharacterPositionAndFacing(el, p.id, doorLeft, doorTop);
+        el.classList.add('inside-house');
+      } else {
+        el.classList.remove('inside-house', 'entering-house', 'night-acting', 'night-returning', 'night-entering-door', 'night-step-out');
+        if (phaseTransition !== 'toDay') {
+          el.classList.remove('is-walking');
+        }
+        applyCharacterPositionAndFacing(el, p.id, pLeft, pTop);
+      }
+    }
+  });
+
+  if (isEnteringDay) {
+    if (dayWalkStopTimer) clearTimeout(dayWalkStopTimer);
+    dayWalkStopTimer = setTimeout(() => {
+      document.querySelectorAll('.char-node.is-walking').forEach(node => node.classList.remove('is-walking'));
+    }, 3150);
+  }
+
+  housesLayer.innerHTML = housesHtml;
+  if (nextFxKey !== lastFxKey) {
+    lastFxKey = nextFxKey;
+    fxLayer.innerHTML = fxHtml;
+  }
+  prevPhase = currentPhaseKey;
+
+  const logBox = document.getElementById('combinedLogBox');
+  const prevScrollBottom = logBox.scrollHeight - logBox.scrollTop - logBox.clientHeight;
+  logBox.innerHTML = renderTimelineLogs(timeline, players, COLORS);
+  if ((timeline && timeline.length !== lastTimelineCount) || prevScrollBottom < 30) {
+    lastTimelineCount = timeline ? timeline.length : 0;
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+}
+
+function renderCenterActions(view, submitted, myNightAction, phaseTransition) {
+  const container = document.getElementById('centerActions');
+  const { me, ph, day, over, myVote } = view;
+  if (over || !me.alive || phaseTransition) {
+    container.innerHTML = '';
+    return;
+  }
+
+  if (ph === 'day') {
+    if (myVote !== undefined) {
+      container.innerHTML = `<div style="font-size:10px; color:#16a34a; font-weight:bold;">投票待ち...</div>`;
+    } else if (day === 1) {
+      container.innerHTML = `<button onclick="submitDayVote(-1)">初日確認</button>`;
+    } else {
+      container.innerHTML = `<button class="secondary" onclick="submitDayVote(-1)">スキップ</button>`;
+    }
+    return;
+  }
+
+  let html = '';
+  if (me.sur) {
+    const shUsed = me.uses.sur || 0;
+    if (shUsed < 3) {
+      html += `<button onclick="submitNightAction({sh:1})">🛡️ シールド(${3 - shUsed})</button>`;
+    }
+  }
+  if (me.er === 'bom' && me.bombs > 0) {
+    html += `<button class="danger" onclick="submitNightAction({det:1})">💥 起爆(${me.bombs})</button>`;
+  }
+  html += `<button class="secondary" onclick="submitNightAction({})">何もしない</button>`;
+  if (myNightAction) {
+    html += `<button class="danger" style="font-size:10px; padding:3px;" onclick="socket.emit('cancelNightAction')">取消</button>`;
+  }
+  container.innerHTML = html;
+}
+
+function submitDayVote(targetId) {
+  closeModal();
+  socket.emit('submitAction', targetId);
+}
+
+function submitNightAction(actionObj) {
+  closeModal();
+  socket.emit('submitAction', actionObj);
+}
+
+function getGuessCampClass(g, meta) {
+  if (g === 'imp' || g.startsWith('r:') || (meta.R && meta.R.includes(g))) return 'guess-r';
+  if (g === 'fool' || (meta.G && meta.G.includes(g))) return 'guess-g';
+  if (meta.B && meta.B.includes(g)) return 'guess-b';
+  return 'guess-g';
+}
+
+function onHouseClick(targetId) {
+  if (!currentState || currentState.mode !== 'game' || currentState.phaseTransition) return;
+  const { view, meta } = currentState;
+  const { me, players, ph, over, myVote } = view;
+  if (over || !me.alive) return;
+
+  const target = players.find(p => p.id === targetId);
+  if (!target || !target.alive) return;
+
+  if (ph === 'night' && target.id === me.id) return;
+
+  const modalTitle = document.getElementById('modalTitle');
+  const modalSub = document.getElementById('modalSub');
+  const modalChoices = document.getElementById('modalChoices');
+
+  modalTitle.textContent = target.id === me.id ? `🏠 あなた（${target.name}）の家` : `🏠 ${target.name} の家`;
+
+  if (ph === 'day') {
+    if (myVote !== undefined) {
+      modalSub.textContent = 'あなたはすでに投票済みです（昼の投票は変更できません）。';
+      modalChoices.innerHTML = '';
+    } else {
+      const labelTarget = target.id === me.id ? `自分（${target.name}）` : target.name;
+      modalSub.textContent = view.day === 1
+        ? '初日はモデレーター決め投票です（追放は発生しません）。'
+        : `このプレイヤーに投票しますか？（過半数 ${view.majorityNeeded || 1}票で追放・変更不可）`;
+      modalChoices.innerHTML = `
+        <button class="danger" onclick="submitDayVote(${target.id})">🗳️ ${labelTarget} に投票する</button>
+      `;
+    }
+    document.getElementById('houseModal').classList.remove('hidden');
+    return;
+  }
+
+  modalSub.textContent = '実行する行動を選択してください（全員決定まで変更可能）';
+  const { N, G, TG, LIM, GUESS } = meta;
+  const noRepeat = ['doc', 'pol', 'trk'].includes(me.er);
+  const isRepeatTarget = noRepeat && me.last[me.er] === target.id;
+  const limit = LIM[me.er];
+  const used = me.uses[me.er] || 0;
+  const hasAbility = TG.includes(me.er) && (!limit || used < limit);
+
+  let choicesHtml = '';
+
+  if (me.rc === 'r') {
+    choicesHtml += `<button class="danger" onclick="submitNightAction({t:${target.id}, kill:1})">🔪 ${target.name} を襲撃（キル）する</button>`;
+  }
+
+  if (me.er === 'mag') {
+    choicesHtml += `<div style="font-size:12px; color:#79c0ff; margin-top:4px;">⚡ 当てる役職を選択して雷を落とす：</div><div class="guess-grid">`;
+    choicesHtml += GUESS.map(g => {
+      const gName = g.startsWith('r:') ? `赤${N[g.slice(2)]}` : N[g];
+      const campCls = getGuessCampClass(g, meta);
+      return `<button class="${campCls}" onclick="submitNightAction({t:${target.id}, guess:'${g}'})">${gName}</button>`;
+    }).join('');
+    choicesHtml += `</div>`;
+  } else if (hasAbility) {
+    const abilityName = (me.rc === 'r' && G && G.includes(me.er)) ? `赤${N[me.er]}` : N[me.er];
+    if (isRepeatTarget) {
+      choicesHtml += `<button disabled>✨ ${abilityName}（前夜と同じ対象は不可）</button>`;
+    } else {
+      const rem = limit ? ` [残り${limit - used}回]` : '';
+      choicesHtml += `<button onclick="submitNightAction({t:${target.id}})">✨ ${abilityName}の能力を使う${rem}</button>`;
+    }
+  }
+
+  if (!choicesHtml) {
+    choicesHtml = `<p style="font-size:13px; color:var(--muted); margin:4px 0;">この家に対して使える能力がありません。</p>`;
+  }
+
+  modalChoices.innerHTML = choicesHtml;
+  document.getElementById('houseModal').classList.remove('hidden');
+}
+
+function closeModal() {
+  document.getElementById('houseModal').classList.add('hidden');
+}
+</script></script>
+</body>
+</html>
