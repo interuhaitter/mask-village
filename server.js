@@ -14,7 +14,7 @@ const PHASE_TIMERS = {
   roleReveal: 4500,    // ゲーム開始時の役職表示
   toDay: 3800,         // 夜 → 朝（広場集合）
   toNight: 3500,       // 昼 → 夜（帰宅入室）
-  nightEvent: 7800,    // 夜の役職行動1件あたり
+  nightEvent: 8200,    // 夜の役職行動1件あたり（往路・実行・帰還）
   nightEmpty: 1500,    // 夜の役職行動0件時
   morningDeath: 4800,  // 朝の死体発見ズーム1件あたり
   morningRat: 4800,    // 朝のねずみ指さし1件あたり
@@ -40,7 +40,6 @@ const COLORS = [
 ];
 
 const ROLE_NAMES = {
-  imp: 'インポスター',
   rat: 'ねずみ',
   inv: 'インベスティゲーター',
   pol: 'ポリス',
@@ -64,14 +63,14 @@ const CAMP_NAMES = { g: '緑', r: '赤', b: '青' };
 const GREEN_ROLES = ['rat', 'inv', 'pol', 'trap', 'look', 'trk', 'prov', 'doc'];
 const GREEN_ALL_ROLES = [...GREEN_ROLES, 'fool'];
 const RED_SPECIAL_ROLES = ['blm', 'cln'];
-const RED_ALL_ROLES = ['imp', 'blm', 'cln', ...GREEN_ROLES];
+const RED_ALL_ROLES = ['blm', 'cln', ...GREEN_ROLES];
 const BLUE_ROLES = ['sk', 'mag', 'gho', 'bom', 'thf', 'sur'];
 const TARGET_ROLES = ['rat', 'inv', 'pol', 'trap', 'look', 'trk', 'prov', 'doc', 'blm', 'cln', 'sk', 'bom', 'thf'];
 // トラッカー・ルックアウトは回数無制限、ネズミ1回、トラッパー2回、挑発者2回、ブレイマー2回、シーフ1回、サバイバー3回
 const ROLE_LIMITS = { rat: 1, trap: 2, prov: 2, blm: 2, thf: 1, sur: 3 };
 const GUESS_ROLES = [
   'rat', 'inv', 'pol', 'trap', 'look', 'trk', 'prov', 'doc', 'fool',
-  'imp', 'blm', 'cln',
+  'blm', 'cln',
   'r:rat', 'r:inv', 'r:pol', 'r:trap', 'r:look', 'r:trk', 'r:prov', 'r:doc',
   'sk', 'mag', 'gho', 'bom', 'thf', 'sur'
 ];
@@ -101,7 +100,6 @@ function getSlotLabel(c, role) {
 }
 
 function getConcreteRoleLabel(c, role) {
-  if (c === 'r' && (!role || role === 'imp')) return 'インポスター';
   if (c === 'r' && GREEN_ROLES.includes(role)) {
     return `赤${ROLE_NAMES[role] || '不明'}`;
   }
@@ -116,7 +114,7 @@ let slots = [
   { c: 'g', role: 'pol' },
   { c: 'g', role: 'doc' },
   { c: 'g', role: null },
-  { c: 'r', role: 'imp' },
+  { c: 'r', role: null },
   { c: 'b', role: 'sk' }
 ];
 
@@ -236,7 +234,7 @@ function initGame() {
 
   const shuffledSlots = shuffle(slots);
   const roleBarTemplate = slots.map(s => ({
-    c: s.role ? s.c : s.c,
+    c: s.c,
     role: s.role ? s.role : '',
     origCamp: s.c,
     origRole: s.role || null
@@ -330,7 +328,9 @@ function initGame() {
     nightActions: {},
     lastExile: null,
     newDeaths: [],
-    morningRats: []
+    morningDeathIdx: 0,
+    morningRats: [],
+    morningRatIdx: 0
   };
 
   mode = 'game';
@@ -382,7 +382,7 @@ function scheduleBotNightActions() {
       const nonReds = others.filter(x => x.realCamp !== 'r');
       const targetPool = nonReds.length > 0 ? nonReds : others;
       // 赤陣営が特殊能力を持つ場合、一定確率で能力を使用
-      if (er && er !== 'imp' && TARGET_ROLES.includes(er)) {
+      if (er && TARGET_ROLES.includes(er)) {
         const limit = ROLE_LIMITS[er];
         const used = p.uses[er] || 0;
         const canUseAbility = !limit || used < limit;
@@ -626,9 +626,40 @@ function computeBlackmailedRedRole(target) {
     return target.apparentRole || randItem(GREEN_ROLES.filter(r => r !== 'prov'));
   }
   if (target.realCamp === 'r') {
-    return target.realRole || 'imp';
+    return target.realRole || randItem(RED_ALL_ROLES);
   }
   return randItem(RED_ALL_ROLES);
+}
+
+// プレイヤーがその夜に実際に有効な訪問移動を行うかどうかを判定
+function hasValidTargetVisit(p, act) {
+  if (!act || act.isFoolFake) return false;
+  if (act.t === undefined || act.t === p.id) return false;
+  const target = game.players[act.t];
+  if (!target || !target.alive) return false;
+
+  // 赤陣営のキル行動は有効な訪問
+  if (p.realCamp === 'r' && act.isKillAction) return true;
+
+  // 魔術師の雷は遠隔攻撃なので家には訪問しない
+  if (p.realRole === 'mag') return false;
+
+  // ボマーの起爆は自宅行動
+  if (p.realRole === 'bom' && act.det) return false;
+
+  // サバイバーのシールドは自宅行動
+  if (p.realRole === 'sur') return false;
+
+  if (!TARGET_ROLES.includes(p.realRole)) return false;
+
+  const limit = ROLE_LIMITS[p.realRole];
+  const used = p.uses[p.realRole] || 0;
+  if (limit && used >= limit) return false;
+
+  const noRepeat = ['doc', 'pol', 'trk'].includes(p.realRole);
+  if (noRepeat && p.last[p.realRole] === act.t) return false;
+
+  return true;
 }
 
 function resolveNightPhase() {
@@ -662,10 +693,11 @@ function resolveNightPhase() {
     const act = effectiveAct.get(p.id);
     if (!act || act.isFoolFake || act.isKillAction) return;
     if (p.realRole === 'pol' && act.t !== undefined && act.t !== p.id) {
+      if (p.last.pol === act.t) return;
       p.last.pol = act.t;
       const target = game.players[act.t];
       const targetAct = effectiveAct.get(act.t);
-      const targetWentOut = target && target.alive && targetAct && !targetAct.isFoolFake && targetAct.t !== undefined && targetAct.t !== target.id;
+      const targetWentOut = target && target.alive && hasValidTargetVisit(target, targetAct);
       if (targetWentOut) {
         blockedSet.add(target.id);
         p.myNightEvents.push({
@@ -738,57 +770,58 @@ function resolveNightPhase() {
     }
   });
 
-  // 3. 訪問＆トラップ発動判定
+  // 3. 訪問＆トラップ発動判定（有効な訪問のみを記録）
   const houseVisitors = new Map();
   const playerDest = new Map();
 
   alive.forEach(p => {
     if (blockedSet.has(p.id)) return;
-    const raw = actions[p.id] || {};
-    if (raw.t !== undefined && raw.t !== p.id) {
-      const trapperList = trappedHouseMap.get(raw.t) || [];
-      const activeTrapperIdx = trapperList.findIndex(tid => tid !== p.id);
-      if (activeTrapperIdx >= 0) {
-        const trapperId = trapperList[activeTrapperIdx];
-        trapperList.splice(activeTrapperIdx, 1);
-        if (trapperList.length === 0) trappedHouseMap.delete(raw.t);
+    const act = effectiveAct.get(p.id);
+    if (!hasValidTargetVisit(p, act)) return;
 
-        blockedSet.add(p.id);
-        p.myNightEvents.push({
-          kind: 'trapped',
-          target: p.id,
-          house: raw.t
+    const targetHouseId = act.t;
+    const trapperList = trappedHouseMap.get(targetHouseId) || [];
+    const activeTrapperIdx = trapperList.findIndex(tid => tid !== p.id);
+    if (activeTrapperIdx >= 0) {
+      const trapperId = trapperList[activeTrapperIdx];
+      trapperList.splice(activeTrapperIdx, 1);
+      if (trapperList.length === 0) trappedHouseMap.delete(targetHouseId);
+
+      blockedSet.add(p.id);
+      p.myNightEvents.push({
+        kind: 'trapped',
+        target: p.id,
+        house: targetHouseId
+      });
+      const trapper = game.players[trapperId];
+      if (trapper) {
+        trapper.myNightEvents.push({
+          kind: 'act',
+          actor: trapper.id,
+          target: targetHouseId,
+          role: 'trap',
+          camp: trapper.realCamp,
+          result: 'ok'
         });
-        const trapper = game.players[trapperId];
-        if (trapper) {
-          trapper.myNightEvents.push({
-            kind: 'act',
-            actor: trapper.id,
-            target: raw.t,
-            role: 'trap',
-            camp: trapper.realCamp,
-            result: 'ok'
-          });
-          trapper.privateLogs.push({
-            day: game.day,
-            scope: 'private',
-            icons: [
-              { type: 'char', id: trapper.id },
-              { type: 'role', c: trapper.realCamp, role: 'trap' },
-              { type: 'char', id: p.id },
-              { type: 'mark', val: 'ok' }
-            ]
-          });
-        }
-        return;
+        trapper.privateLogs.push({
+          day: game.day,
+          scope: 'private',
+          icons: [
+            { type: 'char', id: trapper.id },
+            { type: 'role', c: trapper.realCamp, role: 'trap' },
+            { type: 'char', id: p.id },
+            { type: 'mark', val: 'ok' }
+          ]
+        });
       }
-
-      if (!houseVisitors.has(raw.t)) houseVisitors.set(raw.t, []);
-      houseVisitors.get(raw.t).push(p.id);
-
-      if (!playerDest.has(p.id)) playerDest.set(p.id, []);
-      playerDest.get(p.id).push(raw.t);
+      return;
     }
+
+    if (!houseVisitors.has(targetHouseId)) houseVisitors.set(targetHouseId, []);
+    houseVisitors.get(targetHouseId).push(p.id);
+
+    if (!playerDest.has(p.id)) playerDest.set(p.id, []);
+    playerDest.get(p.id).push(targetHouseId);
   });
 
   // 4. バカ偽行動・サバイバー・ドクター
@@ -803,9 +836,18 @@ function resolveNightPhase() {
     if (act.isFoolFake && act.raw.t !== undefined && act.raw.t !== p.id) {
       const target = game.players[act.raw.t];
       if (target) {
-        if (p.apparentRole === 'inv') {
+        const fakeRole = p.apparentRole;
+        const limit = ROLE_LIMITS[fakeRole];
+        const used = p.uses[fakeRole] || 0;
+        if (limit && used >= limit) return;
+        if (limit) {
+          p.uses[fakeRole] = used + 1;
+        }
+
+        if (fakeRole === 'inv') {
           const fake1 = { c: 'g', role: randItem(GREEN_ROLES) };
-          const fake2 = { c: 'r', role: 'imp' };
+          const fake2 = { c: 'r', role: randItem(RED_ALL_ROLES) };
+          const choiceIcons = shuffle([fake1, fake2]);
           p.myNightEvents.push({
             kind: 'act',
             actor: p.id,
@@ -813,7 +855,7 @@ function resolveNightPhase() {
             role: 'inv',
             camp: 'g',
             result: 'ok',
-            choiceIcons: [fake1, fake2]
+            choiceIcons
           });
           p.privateLogs.push({
             day: game.day,
@@ -822,8 +864,8 @@ function resolveNightPhase() {
               { type: 'char', id: p.id },
               { type: 'role', c: 'g', role: 'inv' },
               { type: 'char', id: target.id },
-              { type: 'role', c: fake1.c, role: fake1.role },
-              { type: 'role', c: fake2.c, role: fake2.role }
+              { type: 'role', c: choiceIcons[0].c, role: choiceIcons[0].role },
+              { type: 'role', c: choiceIcons[1].c, role: choiceIcons[1].role }
             ]
           });
         } else {
@@ -831,10 +873,22 @@ function resolveNightPhase() {
             kind: 'act',
             actor: p.id,
             target: target.id,
-            role: p.apparentRole,
+            role: fakeRole,
             camp: 'g',
-            result: 'ng'
+            result: fakeRole === 'rat' ? 'ok' : 'ng'
           });
+          if (fakeRole !== 'rat') {
+            p.privateLogs.push({
+              day: game.day,
+              scope: 'private',
+              icons: [
+                { type: 'char', id: p.id },
+                { type: 'role', c: 'g', role: fakeRole },
+                { type: 'char', id: target.id },
+                { type: 'mark', val: 'ng' }
+              ]
+            });
+          }
         }
       }
       return;
@@ -856,6 +910,7 @@ function resolveNightPhase() {
     }
 
     if (p.realRole === 'doc' && act.t !== undefined && act.t !== p.id) {
+      if (p.last.doc === act.t) return;
       p.last.doc = act.t;
       const target = game.players[act.t];
       if (target && target.alive) {
@@ -942,7 +997,7 @@ function resolveNightPhase() {
     }
   });
 
-  // 6. キル＆シーフ殺害コピー
+  // 6. キル＆シーフ殺害コピー（情報系役職より先に行動）
   const activeAttackersOnTarget = new Set();
 
   alive.forEach(p => {
@@ -994,10 +1049,9 @@ function resolveNightPhase() {
     if (p.realRole === 'mag' && act.t !== undefined && act.t !== p.id && act.guess) {
       const target = game.players[act.t];
       if (target && target.alive) {
-        let actualGuessKey = target.realRole || 'imp';
+        let actualGuessKey = target.realRole;
         if (target.realCamp === 'r') {
-          if (!target.realRole || target.realRole === 'imp') actualGuessKey = 'imp';
-          else if (GREEN_ROLES.includes(target.realRole)) actualGuessKey = `r:${target.realRole}`;
+          if (GREEN_ROLES.includes(target.realRole)) actualGuessKey = `r:${target.realRole}`;
           else actualGuessKey = target.realRole;
         }
         const hit = actualGuessKey === act.guess;
@@ -1074,7 +1128,6 @@ function resolveNightPhase() {
         const saved = healedByMap.has(target.id) || shieldedSet.has(target.id);
 
         if (saved) {
-          // ドクター蘇生等で殺害を阻害された場合はコピーできない
           p.myNightEvents.push({
             kind: 'act',
             actor: p.id,
@@ -1084,7 +1137,6 @@ function resolveNightPhase() {
             result: 'ng'
           });
         } else {
-          // コピー元を殺害し、何の役職になったかは次の日に判明する
           const prev = killedMap.get(target.id);
           if (!prev || prev.killerRole !== 'sk') {
             killedMap.set(target.id, { killerId: p.id, killerRole: 'thf', killerCamp: 'b', isAsh: false });
@@ -1161,10 +1213,11 @@ function resolveNightPhase() {
   });
 
   // 8. 情報系役職（インベ・ルックアウト・トラッカー・ねずみ）
+  // ※シリアルキラーやインポスターにすでに殺害されたプレイヤーは行動不可
   const morningRats = [];
 
   alive.forEach(p => {
-    if (blockedSet.has(p.id)) return;
+    if (blockedSet.has(p.id) || killedMap.has(p.id)) return;
     const act = effectiveAct.get(p.id);
     if (!act || act.isFoolFake || act.isKillAction || act.t === undefined || act.t === p.id) return;
     const target = game.players[act.t];
@@ -1226,6 +1279,7 @@ function resolveNightPhase() {
       }
       p.privateLogs.push({ day: game.day, scope: 'private', icons: logIcons });
     } else if (p.realRole === 'trk') {
+      if (p.last.trk === target.id) return;
       p.uses.trk = (p.uses.trk || 0) + 1;
       p.last.trk = target.id;
       const destIds = playerDest.get(target.id) || [];
@@ -1263,15 +1317,19 @@ function resolveNightPhase() {
           camp: p.realCamp,
           result: 'ok'
         });
-        morningRats.push({ actor: p.id, target: pointedId });
-        game.publicLogs.push({
-          day: game.day + 1,
-          scope: 'public',
-          icons: [
-            { type: 'char', id: p.id },
-            { type: 'role', c: p.realCamp, role: 'rat' },
-            { type: 'char', id: pointedId }
-          ]
+        // 昼のねずみ行動モーション後に公開ログへ追加するため logEntry を保持
+        morningRats.push({
+          actor: p.id,
+          target: pointedId,
+          logEntry: {
+            day: game.day + 1,
+            scope: 'public',
+            icons: [
+              { type: 'char', id: p.id },
+              { type: 'role', c: p.realCamp, role: 'rat' },
+              { type: 'char', id: pointedId }
+            ]
+          }
         });
       }
     }
@@ -1314,27 +1372,29 @@ function resolveNightPhase() {
       });
     }
 
+    // 昼の死体役職公表モーション後に公開ログへ追加するため logEntry を保持
     newDeaths.push({
       id: victim.id,
       name: victim.name,
       c: displayCamp,
       role: displayRole,
-      roleText
-    });
-
-    game.publicLogs.push({
-      day: game.day + 1,
-      scope: 'public',
-      icons: [
-        { type: 'char', id: victim.id },
-        { type: 'skull' },
-        { type: 'role', c: displayCamp, role: displayRole }
-      ]
+      roleText,
+      logEntry: {
+        day: game.day + 1,
+        scope: 'public',
+        icons: [
+          { type: 'char', id: victim.id },
+          { type: 'skull' },
+          { type: 'role', c: displayCamp, role: displayRole }
+        ]
+      }
     });
   });
 
   game.newDeaths = newDeaths;
+  game.morningDeathIdx = 0;
   game.morningRats = morningRats;
+  game.morningRatIdx = 0;
 
   const maxNightEvents = Math.max(0, ...game.players.map(p => (p.myNightEvents || []).length));
   const nightDuration = maxNightEvents > 0
@@ -1405,38 +1465,77 @@ function startToDayTransition() {
 function startMorningDeathsTransition() {
   if (!game) return;
   game.phaseTransition = 'morningDeaths';
+  game.morningDeathIdx = 0;
   broadcastState();
 
-  const duration = game.newDeaths.length * PHASE_TIMERS.morningDeath;
-  phaseTimer = setTimeout(() => {
+  const stepDeath = () => {
     if (!game || mode !== 'game') return;
-    if (checkWinCondition()) {
-      startToResultTransition();
-    } else if (game.morningRats.length > 0) {
-      startMorningRatTransition();
-    } else {
-      enterDayDiscussion();
+    const currentDeath = game.newDeaths[game.morningDeathIdx];
+    // 死体の役職公表モーション完了後に公開ログを更新
+    if (currentDeath && currentDeath.logEntry) {
+      game.publicLogs.push(currentDeath.logEntry);
+      currentDeath.logEntry = null;
     }
-  }, duration);
+
+    if (game.morningDeathIdx + 1 < game.newDeaths.length) {
+      game.morningDeathIdx += 1;
+      broadcastState();
+      phaseTimer = setTimeout(stepDeath, PHASE_TIMERS.morningDeath);
+    } else {
+      if (checkWinCondition()) {
+        // 残っているねずみログがあれば結果画面の前に補完
+        game.morningRats.forEach(r => {
+          if (r.logEntry) {
+            game.publicLogs.push(r.logEntry);
+            r.logEntry = null;
+          }
+        });
+        startToResultTransition();
+      } else if (game.morningRats.length > 0) {
+        startMorningRatTransition();
+      } else {
+        enterDayDiscussion();
+      }
+    }
+  };
+
+  phaseTimer = setTimeout(stepDeath, PHASE_TIMERS.morningDeath);
 }
 
 function startMorningRatTransition() {
   if (!game) return;
   game.phaseTransition = 'morningRat';
+  game.morningRatIdx = 0;
   broadcastState();
 
-  const duration = game.morningRats.length * PHASE_TIMERS.morningRat;
-  phaseTimer = setTimeout(() => {
+  const stepRat = () => {
     if (!game || mode !== 'game') return;
-    enterDayDiscussion();
-  }, duration);
+    const currentRat = game.morningRats[game.morningRatIdx];
+    // ねずみの行動モーション完了後に公開ログを更新
+    if (currentRat && currentRat.logEntry) {
+      game.publicLogs.push(currentRat.logEntry);
+      currentRat.logEntry = null;
+    }
+
+    if (game.morningRatIdx + 1 < game.morningRats.length) {
+      game.morningRatIdx += 1;
+      broadcastState();
+      phaseTimer = setTimeout(stepRat, PHASE_TIMERS.morningRat);
+    } else {
+      enterDayDiscussion();
+    }
+  };
+
+  phaseTimer = setTimeout(stepRat, PHASE_TIMERS.morningRat);
 }
 
 function enterDayDiscussion() {
   if (!game) return;
   game.phaseTransition = null;
   game.newDeaths = [];
+  game.morningDeathIdx = 0;
   game.morningRats = [];
+  game.morningRatIdx = 0;
   scheduleBotDayVotes();
   broadcastState();
 }
@@ -1452,6 +1551,41 @@ function startToResultTransition() {
     game.showResult = true;
     broadcastState();
   }, PHASE_TIMERS.toResult);
+}
+
+function buildPlayerRoleBar(mePlayer) {
+  const baseList = game.roleBarTemplate.map(item => ({
+    c: item.c,
+    role: item.role || '',
+    isMe: false
+  }));
+  const myCamp = mePlayer.apparentCamp;
+  const myRole = mePlayer.apparentRole || '';
+
+  // 1. 自分の役職がすでにロビー設定で村に存在している場合は、その既存枠を1番右へ移動して自分の役にする
+  const existingIdx = baseList.findIndex(item => item.c === myCamp && item.role === myRole);
+  if (existingIdx >= 0) {
+    const [mine] = baseList.splice(existingIdx, 1);
+    mine.isMe = true;
+    baseList.push(mine);
+    return baseList;
+  }
+
+  // 2. ランダムから出た役職で村にまだ存在しない場合は、同陣営のランダム枠を1つ減らして1番右に自分の役として表示する
+  const randomIdx = baseList.findIndex(item => item.c === myCamp && item.role === '');
+  if (randomIdx >= 0) {
+    baseList.splice(randomIdx, 1);
+    baseList.push({ c: myCamp, role: myRole, isMe: true });
+    return baseList;
+  }
+
+  // 3. フォールバック（万一該当枠が見つからない場合）
+  const fallbackIdx = Math.min(mePlayer.assignedBarIdx || 0, Math.max(0, baseList.length - 1));
+  if (baseList.length > 0) {
+    baseList.splice(fallbackIdx, 1);
+  }
+  baseList.push({ c: myCamp, role: myRole, isMe: true });
+  return baseList;
 }
 
 function buildPlayerView(targetUid) {
@@ -1482,11 +1616,7 @@ function buildPlayerView(targetUid) {
   const mergedTimeline = [...game.publicLogs, ...(mePlayer.privateLogs || [])]
     .sort((a, b) => a.day - b.day);
 
-  const roleBar = game.roleBarTemplate.map((item, idx) => ({
-    c: item.c,
-    role: item.role,
-    isMe: idx === mePlayer.assignedBarIdx
-  }));
+  const roleBar = buildPlayerRoleBar(mePlayer);
 
   const playersView = game.players.map(p => {
     const isMate = mePlayer.realCamp === 'r' && p.realCamp === 'r' && p.id !== mePlayer.id;
@@ -1522,6 +1652,19 @@ function buildPlayerView(targetUid) {
 
   const myBombsCount = game.players.filter(p => p.alive && p.bombsOnHouse > 0).length;
   const majorityNeeded = Math.floor(alivePlayers.length / 2) + 1;
+
+  const safeNewDeaths = (game.newDeaths || []).map(d => ({
+    id: d.id,
+    name: d.name,
+    c: d.c,
+    role: d.role,
+    roleText: d.roleText
+  }));
+
+  const safeMorningRats = (game.morningRats || []).map(r => ({
+    actor: r.actor,
+    target: r.target
+  }));
 
   return {
     submitted: game.ph === 'day'
@@ -1559,8 +1702,10 @@ function buildPlayerView(targetUid) {
       myVote: game.dayVotes[mePlayer.id],
       roleBar,
       myNightEvents: mePlayer.myNightEvents || [],
-      newDeaths: game.newDeaths || [],
-      morningRats: game.morningRats || []
+      newDeaths: safeNewDeaths,
+      morningDeathIdx: game.morningDeathIdx || 0,
+      morningRats: safeMorningRats,
+      morningRatIdx: game.morningRatIdx || 0
     }
   };
 }
