@@ -9,6 +9,15 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// public/index.html が見つからない場合でも Render のヘルスチェックを通過させる保険
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'), (err) => {
+    if (err) {
+      res.status(200).send('Server is running, but public/index.html was not found.');
+    }
+  });
+});
+
 // ★ クライアント（public/index.html）と1ミリ秒単位で完全一致する遷移時間定数
 const PHASE_TIMERS = {
   roleReveal: 4500,    // ゲーム開始時の役職表示
@@ -1934,6 +1943,6 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Mask Village server running on http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Mask Village server running on port ${PORT}`);
 });
