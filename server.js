@@ -654,6 +654,11 @@ function resolveNightPhase() {
           { type: 'char', id: target.id },
           { type: 'mark', val: 'ok' }
         ]);
+        addPrivateLog(target, g.day, [
+          { type: 'grayChar' },
+          { type: 'role', c: 'b', role: 'sk' },
+          { type: 'char', id: target.id }
+        ]);
       }
     } else if (actor.trueRole === 'mag' && act.guess) {
       const targetActualCode = target.rc === 'r' && G.includes(target.trueRole)
@@ -684,6 +689,11 @@ function resolveNightPhase() {
             { type: 'role', c: 'b', role: 'mag' },
             { type: 'char', id: target.id },
             { type: 'mark', val: 'ok' }
+          ]);
+          addPrivateLog(target, g.day, [
+            { type: 'grayChar' },
+            { type: 'role', c: 'b', role: 'mag' },
+            { type: 'char', id: target.id }
           ]);
         }
       } else {
@@ -904,6 +914,11 @@ function resolveNightPhase() {
             if (!tPlayer.shieldActive) {
               tPlayer.alive = false;
               killedTargets.push(tid);
+              addPrivateLog(tPlayer, g.day, [
+                { type: 'grayChar' },
+                { type: 'role', c: 'b', role: 'bom' },
+                { type: 'char', id: tPlayer.id }
+              ]);
             }
           }
         });
@@ -1087,7 +1102,7 @@ function resolveNightPhase() {
       return;
     }
 
-    // ドクターの治療で救出された場合（キル側の判定は丸扱い・被害者に蘇生イベント）
+    // ドクターの治療で救出された場合（キル側の判定は丸扱い・被害者に襲撃ログ＆蘇生ログの両方を記録）
     if (docSavedTargets.has(target.id)) {
       target.nightEvents.push({
         kind: 'revived', target: target.id, saved: true
@@ -1101,7 +1116,20 @@ function resolveNightPhase() {
           { type: 'char', id: target.id },
           { type: 'mark', val: 'ok' }
         ]);
+        const causeIcon = (k.camp === 'r')
+          ? { type: 'skull' }
+          : { type: 'role', c: k.camp, role: k.role };
+        addPrivateLog(target, g.day, [
+          { type: 'grayChar' },
+          causeIcon,
+          { type: 'char', id: target.id }
+        ]);
       });
+      addPrivateLog(target, g.day, [
+        { type: 'grayChar' },
+        { type: 'role', c: 'g', role: 'doc' },
+        { type: 'char', id: target.id }
+      ]);
       return;
     }
 
@@ -1119,6 +1147,14 @@ function resolveNightPhase() {
         { type: 'role', c: k.camp, role: k.role },
         { type: 'char', id: target.id },
         { type: 'mark', val: 'ok' }
+      ]);
+      const causeIcon = (k.camp === 'r')
+        ? { type: 'skull' }
+        : { type: 'role', c: k.camp, role: k.role };
+      addPrivateLog(target, g.day, [
+        { type: 'grayChar' },
+        causeIcon,
+        { type: 'char', id: target.id }
       ]);
       if (k.isThief) {
         pendingThiefCopies.push({ thief: k.killer, victim: target });
@@ -1244,11 +1280,6 @@ function resolveNightPhase() {
         role: revRole,
         roleText: revText
       });
-      addPublicLog(g.day, [
-        { type: 'skull' },
-        { type: 'char', id: p.id },
-        { type: 'role', c: revC, role: revRole }
-      ]);
     }
   });
 
@@ -1300,6 +1331,14 @@ function playMorningDeaths(gid, idx) {
 
     scheduleTimer(() => {
       if (!room.game || room.game.gid !== gid) return;
+      const deathInfo = g.newDeaths[idx];
+      if (deathInfo) {
+        addPublicLog(g.day, [
+          { type: 'skull' },
+          { type: 'char', id: deathInfo.id },
+          { type: 'role', c: deathInfo.c, role: deathInfo.role }
+        ]);
+      }
       playMorningDeaths(gid, idx + 1);
     }, PHASE_TIMERS.morningDeath);
     return;
@@ -1480,15 +1519,24 @@ function buildPlayerView(uid) {
     };
   });
 
-  let markedMySlot = false;
-  const roleBar = g.roleBarBase.map(slot => {
-    let isMe = false;
-    if (!markedMySlot && slot.c === mePlayer.camp && (slot.role === mePlayer.er || slot.role === null)) {
-      isMe = true;
-      markedMySlot = true;
+  let mySlotIdx = g.roleBarBase.findIndex(
+    slot => slot.c === mePlayer.camp && slot.role === mePlayer.er
+  );
+  if (mySlotIdx === -1) {
+    mySlotIdx = g.roleBarBase.findIndex(
+      slot => slot.c === mePlayer.camp && slot.role === null
+    );
+  }
+  const otherSlots = [];
+  let mySlotItem = null;
+  g.roleBarBase.forEach((slot, idx) => {
+    if (idx === mySlotIdx) {
+      mySlotItem = { c: slot.c, role: slot.role, isMe: true };
+    } else {
+      otherSlots.push({ c: slot.c, role: slot.role, isMe: false });
     }
-    return { c: slot.c, role: slot.role, isMe };
   });
+  const roleBar = mySlotItem ? [...otherSlots, mySlotItem] : otherSlots;
 
   const bombsCount = g.players.filter(x => x.alive && x.bombPlanted).length;
 
