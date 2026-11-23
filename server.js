@@ -109,7 +109,7 @@ function roleLabel(c, role) {
   return N[role] || role;
 }
 
-// サーバー状態
+// サーバー状態（初期スロットから能力なしインポスターを削除）
 const room = {
   mode: 'lobby', // 'lobby' | 'game'
   hostUid: null,
@@ -120,7 +120,7 @@ const room = {
     { c: 'g', role: 'trap' },
     { c: 'g', role: 'doc' },
     { c: 'g', role: 'inv' },
-    { c: 'r', role: 'imp' },
+    { c: 'r', role: 'blm' },
     { c: 'b', role: 'sk' }
   ],
   game: null
@@ -145,13 +145,11 @@ function validateSlots() {
   if (n < 3) errs.push('総人数は3人以上にしてください。');
   if (n > 20) errs.push('総人数は20人以下にしてください。');
   const rCount = room.slots.filter(s => s.c === 'r').length;
-  const bKillCount = room.slots.filter(s => s.c === 'b' && (s.role === 'sk' || s.role === 'mag' || s.role === 'bom' || !s.role)).length;
-  const gCount = room.slots.filter(s => s.c === 'g').length;
+  const bKillCount = room.slots.filter(
+    s => s.c === 'b' && (s.role === 'sk' || s.role === 'mag' || s.role === 'bom' || !s.role)
+  ).length;
   if (rCount === 0 && bKillCount === 0) {
     errs.push('赤陣営またはキル能力を持つ第三陣営を1人以上入れてください。');
-  }
-  if (gCount === 0) {
-    errs.push('緑陣営を1人以上入れてください。');
   }
   return errs;
 }
@@ -167,7 +165,7 @@ function getAvailableColor(preferredColor, excludeUid = null) {
   return 0;
 }
 
-function resolveRandomSlot(slot, allResolvedSoFar) {
+function resolveRandomSlot(slot) {
   if (slot.role) {
     return { c: slot.c, role: slot.role };
   }
@@ -176,7 +174,8 @@ function resolveRandomSlot(slot, allResolvedSoFar) {
     return { c: 'g', role: rand(pool) };
   }
   if (slot.c === 'r') {
-    const pool = ['imp', 'imp', ...R, ...G];
+    // 能力を持つ赤陣営からランダム選出
+    const pool = [...R, ...G];
     return { c: 'r', role: rand(pool) };
   }
   if (slot.c === 'b') {
@@ -253,16 +252,14 @@ function startNewGame() {
     botNameIdx++;
   }
 
-  // スロットをシャッフルして割り当て
   const shuffledSlots = shuffle(room.slots);
   const resolvedRoles = shuffledSlots.map(s => resolveRandomSlot(s));
 
   players.forEach((p, idx) => {
     const res = resolvedRoles[idx];
-    p.rc = res.c;        // 真の陣営 ('g' | 'r' | 'b')
-    p.trueRole = res.role; // 真の役職 ('fool' など)
+    p.rc = res.c;
+    p.trueRole = res.role;
     if (res.role === 'fool') {
-      // バカは挑発者以外の緑役職と思い込む
       const fakePool = G.filter(r => r !== 'prov');
       p.camp = 'g';
       p.er = rand(fakePool);
@@ -287,14 +284,14 @@ function startNewGame() {
     players,
     roleBarBase: room.slots.map(s => ({ c: s.c, role: s.role || null })),
     publicLogs: [],
-    votes: {},          // voterId -> targetId (-1 for skip)
-    nightActions: {},   // actorId -> actionObj
+    votes: {},
+    nightActions: {},
     lastExile: null,
     newDeaths: [],
     morningDeathIdx: 0,
     morningRats: [],
     morningRatIdx: 0,
-    pendingMorningRats: [] // 前夜にねずみが調査した対象 [{ actor, target }]
+    pendingMorningRats: []
   };
 
   broadcastState();
@@ -366,7 +363,6 @@ function submitBotNightActions() {
     if (p.rc === 'r') {
       const nonMates = others.filter(x => x.rc !== 'r');
       const targetPool = nonMates.length ? nonMates : others;
-      // 赤役職固有能力がある場合は35%で固有能力、65%でキル
       const limit = LIM[p.er];
       const used = p.uses[p.er] || 0;
       const canSub = TG.includes(p.er) && (!limit || used < limit);
@@ -447,7 +443,6 @@ function resolveDayPhase() {
   const gid = g.gid;
   const alive = g.players.filter(p => p.alive);
 
-  // Day 1 は追放なし
   if (g.day === 1) {
     g.players.forEach(p => { p.extraVotes = 0; });
     transitionToNight(gid);
@@ -467,7 +462,6 @@ function resolveDayPhase() {
     }
   });
 
-  // 翌日に挑発票を持ち越さない
   g.players.forEach(p => { p.extraVotes = 0; });
 
   if (!exiledPlayer) {
@@ -475,7 +469,6 @@ function resolveDayPhase() {
     return;
   }
 
-  // 追放実行
   exiledPlayer.alive = false;
   exiledPlayer.rev = {
     c: exiledPlayer.rc,
@@ -568,6 +561,9 @@ function resolveNightPhase() {
   if (!g) return;
   const gid = g.gid;
 
+  // 夜開始時点の生存者を記録（同夜中の重複キルや訪問を可能にする）
+  const aliveAtNightStart = new Set(g.players.filter(p => p.alive).map(p => p.id));
+
   // 夜の一時状態リセット
   g.players.forEach(p => {
     p.nightEvents = [];
@@ -578,19 +574,18 @@ function resolveNightPhase() {
 
   const actions = {};
   g.players.forEach(p => {
-    if (p.alive) {
+    if (aliveAtNightStart.has(p.id)) {
       actions[p.id] = g.nightActions[p.id] || {};
     }
   });
 
-  // 実際の訪問先（ねずみ・トラッカー・ルックアウト用）
-  const visitedTargets = new Map(); // actorId -> Set<targetId>
+  const visitedTargets = new Map();
   const recordVisit = (actorId, targetId) => {
     if (!visitedTargets.has(actorId)) visitedTargets.set(actorId, new Set());
     visitedTargets.get(actorId).add(targetId);
   };
 
-  // キル候補管理: targetId -> [{ killer, role, camp, isThief, forceUnknown }]
+  // キル候補管理: targetId -> [{ killer, role, camp, isThief, forceUnknown, priority }]
   const pendingKills = new Map();
   const addPendingKill = (targetId, info) => {
     if (!pendingKills.has(targetId)) pendingKills.set(targetId, []);
@@ -599,11 +594,11 @@ function resolveNightPhase() {
 
   const docSavedTargets = new Set();
   const blockedPlayers = new Set();
-  const pendingThiefCopies = []; // [{ thief, victim }]
+  const pendingThiefCopies = [];
 
-  // 事前サバイバーシールドの有効化（防御バフ）
+  // 事前サバイバーシールドの有効化
   g.players.forEach(p => {
-    if (!p.alive) return;
+    if (!aliveAtNightStart.has(p.id)) return;
     const act = actions[p.id];
     if (act && act.sh && p.sur && (p.uses.sur || 0) < 3) {
       p.uses.sur = (p.uses.sur || 0) + 1;
@@ -613,53 +608,31 @@ function resolveNightPhase() {
   });
 
   // =========================================================================
-  // 【第1段階】最速グループ：シリアルキラー (sk) & 魔術師 (mag)（同速・ランダム順）
-  // ゴーストのキル以外の全役職行動より早く、ポリスに止められず、トラップにも引っかからない
+  // 【第1段階】最速グループ：シリアルキラー (sk) & 魔術師 (mag)
+  // ※ ポリスに止められずトラップにも引っかからないが、同夜に他者もターゲットへ行動できるよう
+  //    キル判定は pendingKills に積んで第4段階で一括精算する
   // =========================================================================
   const fastestActors = shuffle(
-    g.players.filter(p => p.alive && (p.trueRole === 'sk' || p.trueRole === 'mag'))
+    g.players.filter(p => aliveAtNightStart.has(p.id) && (p.trueRole === 'sk' || p.trueRole === 'mag'))
   );
 
   fastestActors.forEach(actor => {
-    if (!actor.alive) return; // 同速の相手に先に倒されていたら行動不可
     const act = actions[actor.id];
     if (!act || act.t === undefined || act.t === null) return;
     const target = g.players.find(x => x.id === act.t);
-    if (!target || !target.alive || target.id === actor.id) return;
+    if (!target || !aliveAtNightStart.has(target.id) || target.id === actor.id) return;
 
     recordVisit(actor.id, target.id);
 
     if (actor.trueRole === 'sk') {
-      if (target.shieldActive) {
-        // サバイバーのシールドで防がれた場合でもキル側の判定は丸（ok）
-        actor.nightEvents.push({
-          kind: 'act', actor: actor.id, target: target.id, role: 'sk', camp: 'b', result: 'ok'
-        });
-        addPrivateLog(actor, g.day, [
-          { type: 'role', c: 'b', role: 'sk' },
-          { type: 'char', id: target.id },
-          { type: 'mark', val: 'ok' }
-        ]);
-      } else {
-        target.alive = false;
-        target.killedByUnknown = true;
-        actor.nightEvents.push({
-          kind: 'act', actor: actor.id, target: target.id, role: 'sk', camp: 'b', result: 'ok'
-        });
-        target.nightEvents.push({
-          kind: 'killed', target: target.id, role: 'sk', camp: 'b'
-        });
-        addPrivateLog(actor, g.day, [
-          { type: 'role', c: 'b', role: 'sk' },
-          { type: 'char', id: target.id },
-          { type: 'mark', val: 'ok' }
-        ]);
-        addPrivateLog(target, g.day, [
-          { type: 'grayChar' },
-          { type: 'role', c: 'b', role: 'sk' },
-          { type: 'char', id: target.id }
-        ]);
-      }
+      addPendingKill(target.id, {
+        killer: actor,
+        role: 'sk',
+        camp: 'b',
+        isThief: false,
+        forceUnknown: true,
+        priority: 1
+      });
     } else if (actor.trueRole === 'mag' && act.guess) {
       const targetActualCode = target.rc === 'r' && G.includes(target.trueRole)
         ? `r:${target.trueRole}`
@@ -667,35 +640,14 @@ function resolveNightPhase() {
       const isCorrect = (act.guess === targetActualCode);
 
       if (isCorrect) {
-        if (target.shieldActive) {
-          // サバイバーのシールドで防がれた場合でもキル側の判定は丸（ok）
-          actor.nightEvents.push({
-            kind: 'act', actor: actor.id, target: target.id, role: 'mag', camp: 'b', result: 'ok'
-          });
-          addPrivateLog(actor, g.day, [
-            { type: 'role', c: 'b', role: 'mag' },
-            { type: 'char', id: target.id },
-            { type: 'mark', val: 'ok' }
-          ]);
-        } else {
-          target.alive = false;
-          actor.nightEvents.push({
-            kind: 'act', actor: actor.id, target: target.id, role: 'mag', camp: 'b', result: 'ok'
-          });
-          target.nightEvents.push({
-            kind: 'killed', target: target.id, role: 'mag', camp: 'b'
-          });
-          addPrivateLog(actor, g.day, [
-            { type: 'role', c: 'b', role: 'mag' },
-            { type: 'char', id: target.id },
-            { type: 'mark', val: 'ok' }
-          ]);
-          addPrivateLog(target, g.day, [
-            { type: 'grayChar' },
-            { type: 'role', c: 'b', role: 'mag' },
-            { type: 'char', id: target.id }
-          ]);
-        }
+        addPendingKill(target.id, {
+          killer: actor,
+          role: 'mag',
+          camp: 'b',
+          isThief: false,
+          forceUnknown: false,
+          priority: 1
+        });
       } else {
         // 外すと自分が灰になって死亡
         actor.alive = false;
@@ -716,15 +668,10 @@ function resolveNightPhase() {
   });
 
   // =========================================================================
-  // 【第2段階】ポリス & トラッパー の相互作用解決
-  // ルール：ポリスはトラッパーより早いが、トラッパーのトラップが置いてある家に
-  //       ポリスが阻止しに行った際、そのトラッパーが別のポリスに止められてない限り、
-  //       ポリスはトラッパーのトラップに引っかかって阻止できない。
+  // 【第2段階】ポリス & トラッパー の相互作用解決（ボマーの爆発より先に実行）
   // =========================================================================
-
-  // バカ（fool）がポリス・トラッパー思い込みの場合は空振り処理
   g.players.forEach(p => {
-    if (!p.alive || p.trueRole !== 'fool') return;
+    if (!aliveAtNightStart.has(p.id) || p.trueRole !== 'fool') return;
     const act = actions[p.id];
     if (!act || act.t === undefined || act.t === null) return;
     if (p.er === 'pol' || p.er === 'trap') {
@@ -740,16 +687,15 @@ function resolveNightPhase() {
     }
   });
 
-  // 有効なトラッパーの候補（生存・非バカ・ターゲット指定・回数内）
   const activeTrappers = [];
   g.players.forEach(p => {
-    if (!p.alive || p.trueRole !== 'trap') return;
+    if (!aliveAtNightStart.has(p.id) || p.trueRole !== 'trap') return;
     const act = actions[p.id];
     if (!act || act.t === undefined || act.t === null || act.kill) return;
     const used = p.uses.trap || 0;
     if (used >= (LIM.trap || 2)) return;
     const target = g.players.find(x => x.id === act.t);
-    if (!target || !target.alive || target.id === p.id) return;
+    if (!target || !aliveAtNightStart.has(target.id) || target.id === p.id) return;
     activeTrappers.push({
       player: p,
       targetId: target.id,
@@ -758,23 +704,20 @@ function resolveNightPhase() {
     });
   });
 
-  // 有効なポリスの候補（生存・非バカ・ターゲット指定・前夜と別対象）
   const activePolices = [];
   g.players.forEach(p => {
-    if (!p.alive || p.trueRole !== 'pol') return;
+    if (!aliveAtNightStart.has(p.id) || p.trueRole !== 'pol') return;
     const act = actions[p.id];
     if (!act || act.t === undefined || act.t === null || act.kill) return;
     if (p.last.pol === act.t) return;
     const target = g.players.find(x => x.id === act.t);
-    if (!target || !target.alive || target.id === p.id) return;
+    if (!target || !aliveAtNightStart.has(target.id) || target.id === p.id) return;
     activePolices.push({
       player: p,
       targetId: target.id
     });
   });
 
-  // 「別のポリスに止められる可能性のあるトラッパー」を狙うポリスを先に評価し、
-  // 同一優先度内はシャッフルして解決する
   const trapperIdSet = new Set(activeTrappers.map(tr => tr.player.id));
   const sortedPolices = [
     ...shuffle(activePolices.filter(po => trapperIdSet.has(po.targetId))),
@@ -786,18 +729,15 @@ function resolveNightPhase() {
     const targetId = po.targetId;
     polPlayer.last.pol = targetId;
 
-    // すでに別のポリスに止められていたら行動不可
     if (blockedPlayers.has(polPlayer.id)) {
       return;
     }
 
-    // ポリスが阻止しに行った家 (targetId) に、まだ止められておらず未作動のトラッパーの罠があるか？
     const trapOnHouse = activeTrappers.find(
       tr => tr.targetId === targetId && !tr.stoppedByPolice && !tr.trapConsumed
     );
 
     if (trapOnHouse) {
-      // トラッパーが別のポリスに止められていないため、ポリスはトラップに引っかかって阻止失敗！
       trapOnHouse.trapConsumed = true;
       blockedPlayers.add(polPlayer.id);
       recordVisit(polPlayer.id, targetId);
@@ -813,9 +753,7 @@ function resolveNightPhase() {
       return;
     }
 
-    // トラップに引っかからなかった場合：ターゲットへの阻止を試みる
     const targetPlayer = g.players.find(x => x.id === targetId);
-    // シリアルキラーと魔術師はポリスに止められない
     if (targetPlayer && (targetPlayer.trueRole === 'sk' || targetPlayer.trueRole === 'mag')) {
       polPlayer.nightEvents.push({
         kind: 'act', actor: polPlayer.id, target: targetId, role: 'pol', camp: polPlayer.camp, result: 'fail'
@@ -828,9 +766,7 @@ function resolveNightPhase() {
       return;
     }
 
-    // 阻止成功！
     blockedPlayers.add(targetId);
-    // ターゲットがトラッパーだった場合、そのトラッパーは止められて罠を設置できなくなる
     const stoppedTrap = activeTrappers.find(tr => tr.player.id === targetId);
     if (stoppedTrap) {
       stoppedTrap.stoppedByPolice = true;
@@ -855,8 +791,7 @@ function resolveNightPhase() {
     ]);
   });
 
-  // ポリスに止められなかったトラッパーの消費＆残存トラップの登録
-  const activeHouseTraps = new Map(); // targetId -> [trapperPlayer, ...]
+  const activeHouseTraps = new Map();
   activeTrappers.forEach(tr => {
     if (tr.stoppedByPolice) return;
     tr.player.uses.trap = (tr.player.uses.trap || 0) + 1;
@@ -877,12 +812,12 @@ function resolveNightPhase() {
   });
 
   // =========================================================================
-  // 【第3段階】その他の夜の役職行動の解決（訪問順をシャッフルして公平にトラップ判定）
+  // 【第3段階】ボマー起爆（ポリス・トラッパーの行動完了後）＆その他役職の解決
   // =========================================================================
   const checkAndTriggerHouseTrap = (visitor, targetId) => {
     const traps = activeHouseTraps.get(targetId);
     if (traps && traps.length > 0) {
-      traps.shift(); // 最初の1人目を阻止して消費
+      traps.shift();
       blockedPlayers.add(visitor.id);
       visitor.nightEvents.push({
         kind: 'trapped', target: visitor.id, house: targetId
@@ -897,18 +832,18 @@ function resolveNightPhase() {
     return false;
   };
 
-  // ボマーの起爆は自宅行動なので先に処理
+  // ボマーの起爆（ポリスに阻止されていない場合のみ発動）
   g.players.forEach(p => {
-    if (!p.alive || p.trueRole !== 'bom') return;
+    if (!aliveAtNightStart.has(p.id) || p.trueRole !== 'bom') return;
     if (blockedPlayers.has(p.id)) return;
     const act = actions[p.id];
     if (act && act.det) {
-      const bombTargets = g.players.filter(x => x.alive && x.bombPlanted).map(x => x.id);
+      const bombTargets = g.players.filter(x => aliveAtNightStart.has(x.id) && x.bombPlanted).map(x => x.id);
       if (bombTargets.length > 0) {
         const killedTargets = [];
         bombTargets.forEach(tid => {
           const tPlayer = g.players.find(x => x.id === tid);
-          if (tPlayer && tPlayer.alive) {
+          if (tPlayer && aliveAtNightStart.has(tPlayer.id)) {
             tPlayer.bombPlanted = false;
             tPlayer.bombed = true;
             if (!tPlayer.shieldActive) {
@@ -935,26 +870,24 @@ function resolveNightPhase() {
 
   // 訪問を伴うその他全役職をシャッフルして実行
   const remainingActors = shuffle(
-    g.players.filter(p => p.alive && !['sk', 'mag', 'pol', 'trap'].includes(p.trueRole))
+    g.players.filter(p => aliveAtNightStart.has(p.id) && !['sk', 'mag', 'pol', 'trap'].includes(p.trueRole))
   );
 
-  const infoChecks = []; // inv, rat, look, trk は全訪問確定後に解決
+  const infoChecks = [];
 
   remainingActors.forEach(actor => {
-    if (!actor.alive || blockedPlayers.has(actor.id)) return;
+    if (blockedPlayers.has(actor.id)) return;
     const act = actions[actor.id];
     if (!act || act.t === undefined || act.t === null) return;
     const target = g.players.find(x => x.id === act.t);
-    if (!target || !target.alive || target.id === actor.id) return;
+    if (!target || !aliveAtNightStart.has(target.id) || target.id === actor.id) return;
 
     recordVisit(actor.id, target.id);
 
-    // 家のトラップ判定
     if (checkAndTriggerHouseTrap(actor, target.id)) {
       return;
     }
 
-    // バカ（fool）は能力が発動せず空振り
     if (actor.trueRole === 'fool') {
       if (['doc', 'trk'].includes(actor.er)) actor.last[actor.er] = target.id;
       if (['inv', 'rat', 'look', 'trk'].includes(actor.er)) {
@@ -972,14 +905,15 @@ function resolveNightPhase() {
       return;
     }
 
-    // 赤陣営のキル行動
+    // 赤陣営のキル行動（SK等で狙われていても同夜ならキルしに行ける）
     if (actor.rc === 'r' && act.kill) {
       addPendingKill(target.id, {
         killer: actor,
         role: actor.trueRole,
         camp: 'r',
         isThief: false,
-        forceUnknown: false
+        forceUnknown: false,
+        priority: 2
       });
       return;
     }
@@ -1050,7 +984,8 @@ function resolveNightPhase() {
         role: 'thf',
         camp: 'b',
         isThief: true,
-        forceUnknown: false
+        forceUnknown: false,
+        priority: 2
       });
     } else if (['inv', 'rat', 'look', 'trk'].includes(r)) {
       if (r === 'trk') {
@@ -1066,26 +1001,14 @@ function resolveNightPhase() {
   });
 
   // =========================================================================
-  // 【第4段階】キル・ドクター蘇生・サバイバーシールドの精算
+  // 【第4段階】重複キル・ドクター蘇生・サバイバーシールドの精算
   // =========================================================================
-  pendingKills.forEach((killList, targetId) => {
+  pendingKills.forEach((rawKillList, targetId) => {
     const target = g.players.find(x => x.id === targetId);
     if (!target) return;
 
-    // すでにSK/魔術師等で死亡している場合
-    if (!target.alive) {
-      killList.forEach(k => {
-        k.killer.nightEvents.push({
-          kind: 'act', actor: k.killer.id, target: target.id, role: k.role, camp: k.camp, result: 'fail'
-        });
-        addPrivateLog(k.killer, g.day, [
-          { type: 'role', c: k.camp, role: k.role },
-          { type: 'char', id: target.id },
-          { type: 'mark', val: 'fail' }
-        ]);
-      });
-      return;
-    }
+    // 優先度順（SK・魔術師 → インポスター・シーフ）に並べる
+    const killList = rawKillList.slice().sort((a, b) => (a.priority || 2) - (b.priority || 2));
 
     // シールドで防御された場合（キル側の判定は丸扱い）
     if (target.shieldActive) {
@@ -1102,28 +1025,36 @@ function resolveNightPhase() {
       return;
     }
 
-    // ドクターの治療で救出された場合（キル側の判定は丸扱い・被害者に襲撃ログ＆蘇生ログの両方を記録）
+    // 攻撃者全員分の成功演出・被害者側のキル演出（回数分）・個人ログを記録
+    killList.forEach(k => {
+      k.killer.nightEvents.push({
+        kind: 'act', actor: k.killer.id, target: target.id, role: k.role, camp: k.camp, result: 'ok'
+      });
+      addPrivateLog(k.killer, g.day, [
+        { type: 'role', c: k.camp, role: k.role },
+        { type: 'char', id: target.id },
+        { type: 'mark', val: 'ok' }
+      ]);
+
+      // 殺された側の演出は回数分発生
+      target.nightEvents.push({
+        kind: 'killed', target: target.id, role: k.role, camp: k.camp
+      });
+
+      const causeIcon = (k.camp === 'r')
+        ? { type: 'skull' }
+        : { type: 'role', c: k.camp, role: k.role };
+      addPrivateLog(target, g.day, [
+        { type: 'grayChar' },
+        causeIcon,
+        { type: 'char', id: target.id }
+      ]);
+    });
+
+    // ドクターの治療で救出された場合（SKや複数キルであっても蘇生できる）
     if (docSavedTargets.has(target.id)) {
       target.nightEvents.push({
         kind: 'revived', target: target.id, saved: true
-      });
-      killList.forEach(k => {
-        k.killer.nightEvents.push({
-          kind: 'act', actor: k.killer.id, target: target.id, role: k.role, camp: k.camp, result: 'ok'
-        });
-        addPrivateLog(k.killer, g.day, [
-          { type: 'role', c: k.camp, role: k.role },
-          { type: 'char', id: target.id },
-          { type: 'mark', val: 'ok' }
-        ]);
-        const causeIcon = (k.camp === 'r')
-          ? { type: 'skull' }
-          : { type: 'role', c: k.camp, role: k.role };
-        addPrivateLog(target, g.day, [
-          { type: 'grayChar' },
-          causeIcon,
-          { type: 'char', id: target.id }
-        ]);
       });
       addPrivateLog(target, g.day, [
         { type: 'grayChar' },
@@ -1135,27 +1066,12 @@ function resolveNightPhase() {
 
     // キル成立！
     target.alive = false;
-    target.nightEvents.push({
-      kind: 'killed', target: target.id, role: killList[0].role, camp: killList[0].camp
-    });
+    // シリアルキラーによるキルが含まれていれば死後の役職公開は「わからない（unknown）」にする
+    if (killList.some(k => k.forceUnknown || k.role === 'sk')) {
+      target.killedByUnknown = true;
+    }
 
     killList.forEach(k => {
-      k.killer.nightEvents.push({
-        kind: 'act', actor: k.killer.id, target: target.id, role: k.role, camp: k.camp, result: 'ok'
-      });
-      addPrivateLog(k.killer, g.day, [
-        { type: 'role', c: k.camp, role: k.role },
-        { type: 'char', id: target.id },
-        { type: 'mark', val: 'ok' }
-      ]);
-      const causeIcon = (k.camp === 'r')
-        ? { type: 'skull' }
-        : { type: 'role', c: k.camp, role: k.role };
-      addPrivateLog(target, g.day, [
-        { type: 'grayChar' },
-        causeIcon,
-        { type: 'char', id: target.id }
-      ]);
       if (k.isThief) {
         pendingThiefCopies.push({ thief: k.killer, victim: target });
       }
@@ -1190,13 +1106,12 @@ function resolveNightPhase() {
       const allPool = [
         ...G.map(x => ({ c: 'g', role: x })),
         { c: 'g', role: 'fool' },
-        { c: 'r', role: 'imp' },
         ...R.map(x => ({ c: 'r', role: x })),
         ...B.map(x => ({ c: 'b', role: x }))
       ];
       let realChoice;
       if (target.blamed) {
-        realChoice = { c: 'r', role: rand(['imp', ...R]) };
+        realChoice = { c: 'r', role: rand(R) };
       } else {
         realChoice = { c: target.rc, role: target.trueRole };
       }
@@ -1316,8 +1231,48 @@ function startMorningSequence(gid) {
 
   scheduleTimer(() => {
     if (!room.game || room.game.gid !== gid) return;
+
+    // 死体ズーム演出より前にねずみの指さし演出を実行
+    const validRats = (g.pendingMorningRats || []).filter(r => {
+      const actor = g.players.find(p => p.id === r.actor);
+      const target = g.players.find(p => p.id === r.target);
+      return actor && actor.alive && target;
+    });
+
+    if (validRats.length > 0) {
+      g.morningRats = validRats.map(r => ({ actor: r.actor, target: r.target }));
+      playMorningRats(gid, 0);
+      return;
+    }
+
     playMorningDeaths(gid, 0);
   }, PHASE_TIMERS.toDay);
+}
+
+function playMorningRats(gid, idx) {
+  const g = room.game;
+  if (!g || g.gid !== gid) return;
+
+  if (idx < g.morningRats.length) {
+    const rInfo = g.morningRats[idx];
+    g.phaseTransition = 'morningRat';
+    g.morningRatIdx = idx;
+    addPublicLog(g.day, [
+      { type: 'role', c: 'g', role: 'rat' },
+      { type: 'char', id: rInfo.actor },
+      { type: 'char', id: rInfo.target }
+    ]);
+    broadcastState();
+
+    scheduleTimer(() => {
+      if (!room.game || room.game.gid !== gid) return;
+      playMorningRats(gid, idx + 1);
+    }, PHASE_TIMERS.morningRat);
+    return;
+  }
+
+  // ねずみ演出完了後に死体発見ズーム演出へ
+  playMorningDeaths(gid, 0);
 }
 
 function playMorningDeaths(gid, idx) {
@@ -1350,46 +1305,6 @@ function playMorningDeaths(gid, idx) {
     return;
   }
 
-  // ねずみ指さし演出（生存しているねずみのみ）
-  const validRats = (g.pendingMorningRats || []).filter(r => {
-    const actor = g.players.find(p => p.id === r.actor);
-    const target = g.players.find(p => p.id === r.target);
-    return actor && actor.alive && target && target.alive;
-  });
-
-  if (validRats.length > 0) {
-    g.morningRats = validRats.map(r => ({ actor: r.actor, target: r.target }));
-    playMorningRats(gid, 0);
-    return;
-  }
-
-  g.phaseTransition = null;
-  submitBotDayVotes();
-  broadcastState();
-}
-
-function playMorningRats(gid, idx) {
-  const g = room.game;
-  if (!g || g.gid !== gid) return;
-
-  if (idx < g.morningRats.length) {
-    const rInfo = g.morningRats[idx];
-    g.phaseTransition = 'morningRat';
-    g.morningRatIdx = idx;
-    addPublicLog(g.day, [
-      { type: 'role', c: 'g', role: 'rat' },
-      { type: 'char', id: rInfo.actor },
-      { type: 'char', id: rInfo.target }
-    ]);
-    broadcastState();
-
-    scheduleTimer(() => {
-      if (!room.game || room.game.gid !== gid) return;
-      playMorningRats(gid, idx + 1);
-    }, PHASE_TIMERS.morningRat);
-    return;
-  }
-
   g.phaseTransition = null;
   submitBotDayVotes();
   broadcastState();
@@ -1413,7 +1328,7 @@ function checkGameOver() {
     return true;
   }
 
-  // 2. シリアルキラー単独勝利条件（生存2人以下でSK生存、かつ赤や他キル職がいない）
+  // 2. シリアルキラー単独勝利条件
   if (aliveSK.length > 0 && alive.length <= 2 && aliveR.length === 0 && aliveMag.length === 0 && aliveBom.length === 0) {
     const winners = new Set(aliveSK.map(p => p.id));
     alive.filter(p => p.sur).forEach(p => winners.add(p.id));
@@ -1423,7 +1338,7 @@ function checkGameOver() {
     return true;
   }
 
-  // 3. 魔術師 / ボマー単独勝利条件（生存2人以下で生存、かつ赤やSKがいない）
+  // 3. 魔術師 / ボマー単独勝利条件
   if (aliveR.length === 0 && aliveSK.length === 0 && alive.length <= 2) {
     if (aliveMag.length > 0 && aliveBom.length === 0) {
       const winners = new Set(aliveMag.map(p => p.id));
@@ -1443,7 +1358,7 @@ function checkGameOver() {
     }
   }
 
-  // 4. 赤陣営勝利（SK・魔術師・ボマーが全滅しており、赤生存数 >= 非赤生存数）
+  // 4. 赤陣営勝利
   if (aliveR.length > 0 && aliveSK.length === 0 && aliveMag.length === 0 && aliveBom.length === 0) {
     const nonR = alive.length - aliveR.length;
     if (aliveR.length >= nonR) {
@@ -1456,7 +1371,7 @@ function checkGameOver() {
     }
   }
 
-  // 5. 緑陣営勝利（赤陣営・SK・魔術師・ボマーが全て全滅）
+  // 5. 緑陣営勝利
   if (aliveR.length === 0 && aliveSK.length === 0 && aliveMag.length === 0 && aliveBom.length === 0 && aliveG.length > 0) {
     const winners = new Set(g.players.filter(p => p.rc === 'g').map(p => p.id));
     alive.filter(p => p.sur).forEach(p => winners.add(p.id));
@@ -1494,7 +1409,6 @@ function buildPlayerView(uid) {
   const aliveCount = g.players.filter(p => p.alive).length;
   const majorityNeeded = Math.floor(aliveCount / 2) + 1;
 
-  // 個人ログ＋公開ログを時系列マージ
   const timeline = [...g.publicLogs, ...mePlayer.privateLogs].sort((a, b) => a.day - b.day);
 
   const playersView = g.players.map(p => {
@@ -1519,6 +1433,7 @@ function buildPlayerView(uid) {
     };
   });
 
+  // 自分の役職アイコンを1番右に配置
   let mySlotIdx = g.roleBarBase.findIndex(
     slot => slot.c === mePlayer.camp && slot.role === mePlayer.er
   );
@@ -1743,7 +1658,7 @@ io.on('connection', (socket) => {
     if (!me || !me.alive) return;
 
     if (g.ph === 'day') {
-      if (g.votes[me.id] !== undefined) return; // 変更不可
+      if (g.votes[me.id] !== undefined) return;
       const targetId = Number(payload);
       if (targetId === -1 || g.players.some(p => p.id === targetId && p.alive)) {
         g.votes[me.id] = targetId;
@@ -1788,7 +1703,6 @@ io.on('connection', (socket) => {
     clearTransitionTimers();
     room.mode = 'lobby';
     room.game = null;
-    // オフラインユーザーを整理
     room.users = room.users.filter(u => u.online);
     broadcastState();
   });

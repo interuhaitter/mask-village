@@ -3648,8 +3648,23 @@
 
         const isBeingExiled = isExiling && lastExile.id === p.id;
         const isGhostTargetNow = isExiling && lastExile.ghostVictimId === p.id;
-        let visualAlive = p.alive || isBeingExiled || isGhostTargetNow || isNightMotion;
-        let visualAsh = !!p.isAsh && !isNightMotion;
+        const isNewlyDead = pendingDeathSet.has(p.id);
+
+        // 死体ズーム演出が開始された人（現在のズーム対象およびすでにズーム済みの人）だけ死体表示にする
+        const deathOrderIdx = Array.isArray(view.newDeaths)
+          ? view.newDeaths.findIndex(d => d.id === p.id)
+          : -1;
+        const isDeathRevealedYet = !isNewlyDead
+          || (isMorningDeaths && deathOrderIdx !== -1 && deathOrderIdx <= (view.morningDeathIdx || 0))
+          || (!phaseTransition && !isNightMotion);
+
+        // 夜の行動再生中は「その夜に生存していた人（p.alive または isNewlyDead）」のみ生存見た目にする
+        // すでに過去のターンに死亡していた人は死亡状態（お墓・灰）のまま維持
+        const keepAliveDuringTransition = (isNightMotion && isNewlyDead)
+          || ((phaseTransition === 'toDay' || isMorningRat || isMorningDeaths) && isNewlyDead && !isDeathRevealedYet);
+
+        let visualAlive = p.alive || isBeingExiled || isGhostTargetNow || keepAliveDuringTransition;
+        let visualAsh = !!p.isAsh && !visualAlive;
 
         const ov = charOverrides.get(p.id);
         if (ov) {
@@ -3661,9 +3676,8 @@
           ? (!!p.bombed && revealedBombedHouses.has(p.id))
           : !!p.bombed;
 
-        const isNewlyDead = pendingDeathSet.has(p.id);
         const isCurrentZoomDeath = isMorningDeaths && activeMorningDeath && activeMorningDeath.id === p.id;
-        const hideDeathRoleYet = (phaseTransition === 'toDay' || isMorningDeaths) && isNewlyDead && !isCurrentZoomDeath;
+        const hideDeathRoleYet = isNewlyDead && !isDeathRevealedYet && !isCurrentZoomDeath;
 
         let overlayIcon = '';
         if (!visualAlive) overlayIcon = visualAsh ? '⚱️' : '🪦';
