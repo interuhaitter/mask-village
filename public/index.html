@@ -3225,24 +3225,24 @@
         </div>
       `;
         }
+        // 朝のねずみ演出（指絵文字を使わず、ねずみ＆対象付近へズーム＋ねずみを強調表示）
       } else if (isMorningRat && activeMorningRat) {
+        const aPos = posMap.get(activeMorningRat.actor);
         const tPos = posMap.get(activeMorningRat.target);
-        if (tPos) {
-          const midX = (50 + tPos.pLeft) / 2;
-          const midY = (52 + tPos.pTop) / 2;
+        if (aPos && tPos) {
+          const midX = (aPos.pLeft + tPos.pLeft) / 2;
+          const midY = (aPos.pTop + tPos.pTop) / 2;
           const tx = (50 - midX) * 0.55;
           const ty = (52 - midY) * 0.55;
           wrap.style.transform = `scale(1.32) translate(${tx}%, ${ty}%)`;
-
-          const handX = 50 + (tPos.pLeft - 50) * 0.48;
-          const handY = 52 + (tPos.pTop - 52) * 0.48;
           nextFxKey = `mrat:${gid}:${day}:${activeMorningRat.actor}:${activeMorningRat.target}`;
           fxHtml += `
-        <svg class="rat-point-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-          <line class="rat-point-line" x1="50" y1="52" x2="${tPos.pLeft}" y2="${tPos.pTop}"/>
-        </svg>
-        <div class="rat-point-hand" style="left:${handX}%; top:${handY}%;">👉</div>
-      `;
+            <div class="night-motion-fx" style="left:${aPos.pLeft}%; top:${aPos.pTop}%;">
+              <div class="night-motion-badge" style="border-color:#2ea043;">
+                ${renderRoleIcon('g', 'rat', 'sm', false)}
+              </div>
+            </div>
+          `;
         }
       } else {
         wrap.style.transform = 'scale(1) translate(0%, 0%)';
@@ -3270,13 +3270,16 @@
         const trkCamp = ev.camp || 'g';
 
         // エフェクトDOMの再生成を制御
+        // エフェクトDOMの再生成を1イベントにつき1回に制限（丸演出の重複防止）
         let fxStepGroup = 0;
         if (ev.kind === 'act' && ev.role === 'pol') {
-          fxStepGroup = (nightSubStep === 1 || nightSubStep === 2) ? 1 : 0;
+          fxStepGroup = isOk ? (nightSubStep >= 2 ? 2 : 0) : (nightSubStep >= 3 ? 3 : 0);
         } else if (ev.kind === 'blocked_pol') {
+          fxStepGroup = nightSubStep >= 2 ? 2 : 0;
+        } else if (ev.kind === 'trap_place' || ev.kind === 'trap_triggered') {
           fxStepGroup = (nightSubStep === 1 || nightSubStep === 2) ? 1 : 0;
         } else {
-          fxStepGroup = (nightSubStep === 1) ? 1 : 0;
+          fxStepGroup = (nightSubStep >= 1 && nightSubStep <= 3) ? 1 : 0;
         }
         nextFxKey = fxStepGroup > 0 ? `night:${gid}:${day}:${activeNightEventIdx}:${fxStepGroup}` : 'none';
 
@@ -3297,7 +3300,7 @@
                 ashLook: false
               });
             }
-            if (nightSubStep >= 1 && nightSubStep <= 2) {
+            if (nightSubStep >= 1 && nightSubStep <= 3) {
               fxHtml += `
             <div class="bomb-blast-fx" style="left:${tPos.hLeft}%; top:${tPos.hTop}%;">
               <div class="bomb-blast-fire">💥🔥</div>
@@ -3308,6 +3311,48 @@
           `;
             }
           });
+        } else if (ev.kind === 'trap_place') {
+          const aPos = posMap.get(ev.actor);
+          const tPos = posMap.get(ev.target);
+          if (aPos && tPos) {
+            if (nightSubStep === 0) {
+              charOverrides.set(ev.actor, {left: tPos.frontLeft, top: tPos.frontTop, mode: 'acting', walking: true, inside: false, deadLook: false, ashLook: false});
+            } else if (nightSubStep === 1 || nightSubStep === 2) {
+              charOverrides.set(ev.actor, {left: tPos.frontLeft, top: tPos.frontTop, mode: 'acting', walking: false, inside: false, deadLook: false, ashLook: false});
+              fxHtml += `
+            <div class="night-motion-fx" style="left:${tPos.frontLeft}%; top:${tPos.frontTop}%;">
+              <div class="night-motion-badge" style="border-color:#2ea043;">
+                ${renderRoleIcon('g', 'trap', 'sm', false)}
+              </div>
+            </div>
+          `;
+            } else if (nightSubStep === 3) {
+              charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false});
+            } else {
+              charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'entering-door', walking: false, inside: false, deadLook: false, ashLook: false});
+            }
+          }
+        } else if (ev.kind === 'trap_triggered') {
+          const hPos = posMap.get(ev.house != null ? ev.house : ev.visitorId);
+          const vPos = posMap.get(ev.visitorId);
+          if (hPos && vPos) {
+            if (nightSubStep === 0) {
+              guestOverride = {left: hPos.frontLeft, top: hPos.frontTop, mode: 'acting', walking: true, inside: false};
+            } else if (nightSubStep === 1 || nightSubStep === 2) {
+              guestOverride = {left: hPos.frontLeft, top: hPos.frontTop, mode: 'acting', walking: false, inside: false};
+              fxHtml += `
+            <div class="night-motion-fx" style="left:${hPos.frontLeft}%; top:${hPos.frontTop}%;">
+              <div class="night-motion-badge" style="border-color:#da3633;">
+                ${renderRoleIcon('g', 'trap', 'sm', false)}
+              </div>
+            </div>
+          `;
+            } else if (nightSubStep === 3) {
+              guestOverride = {left: vPos.doorLeft, top: vPos.doorTop, mode: 'returning', walking: true, inside: false};
+            } else {
+              guestOverride = {left: vPos.doorLeft, top: vPos.doorTop, mode: 'entering-door', walking: false, inside: false};
+            }
+          }
         } else if (ev.kind === 'act') {
           const aPos = posMap.get(ev.actor);
           const tPos = posMap.get(ev.target);
@@ -3315,7 +3360,9 @@
             if (ev.role === 'pol') {
               if (nightSubStep === 0) {
                 charOverrides.set(ev.actor, {left: tPos.policeStopLeft, top: tPos.policeStopTop, mode: 'acting', walking: true, inside: false, deadLook: false, ashLook: false});
-              } else if (nightSubStep === 1 || nightSubStep === 2) {
+              } else if (nightSubStep === 1) {
+                charOverrides.set(ev.actor, {left: tPos.policeStopLeft, top: tPos.policeStopTop, mode: 'acting', walking: false, inside: false, deadLook: false, ashLook: false});
+              } else if (nightSubStep === 2 || nightSubStep === 3) {
                 charOverrides.set(ev.actor, {left: tPos.policeStopLeft, top: tPos.policeStopTop, mode: 'acting', walking: false, inside: false, deadLook: false, ashLook: false});
                 if (isOk) {
                   charOverrides.set(ev.target, {left: tPos.targetStopLeft, top: tPos.targetStopTop, mode: 'step-out', walking: false, inside: false, deadLook: false, ashLook: false});
@@ -3327,7 +3374,7 @@
                   </div>
                 </div>
               `;
-                } else {
+                } else if (nightSubStep === 3) {
                   fxHtml += `
                 <div class="night-motion-fx" style="left:${tPos.policeStopLeft}%; top:${tPos.policeStopTop}%;">
                   <div class="night-motion-badge" style="border-color:#94a3b8;">
@@ -3337,21 +3384,16 @@
                 </div>
               `;
                 }
-              } else if (nightSubStep === 3) {
+              } else {
                 charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false});
                 if (isOk) {
                   charOverrides.set(ev.target, {left: tPos.doorLeft, top: tPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false});
-                }
-              } else {
-                charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'entering-door', walking: false, inside: false, deadLook: false, ashLook: false});
-                if (isOk) {
-                  charOverrides.set(ev.target, {left: tPos.doorLeft, top: tPos.doorTop, mode: 'entering-door', walking: false, inside: false, deadLook: false, ashLook: false});
                 }
               }
             } else if (ev.role === 'trk') {
               if (nightSubStep === 0) {
                 charOverrides.set(ev.actor, {left: tPos.frontLeft, top: tPos.frontTop, mode: 'acting', walking: true, inside: false, deadLook: false, ashLook: false});
-              } else if (nightSubStep === 1 || nightSubStep === 2) {
+              } else if (nightSubStep >= 1 && nightSubStep <= 3) {
                 charOverrides.set(ev.actor, {left: tPos.frontLeft, top: tPos.frontTop, mode: 'acting', walking: false, inside: false, deadLook: false, ashLook: false});
                 const destIds = ev.destIds || [];
                 if (isOk && destIds.length > 0) {
@@ -3374,21 +3416,13 @@
                 </div>
               </div>
             `;
-              } else if (nightSubStep === 3) {
-                charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false});
               } else {
-                charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'entering-door', walking: false, inside: false, deadLook: false, ashLook: false});
+                charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false});
               }
             } else if (ev.role === 'doc' || ev.role === 'imp' || ev.role === '' || ev.role === 'sk' || ev.role === 'thf') {
-              // 殺害・治療モーション：
-              // step 0: 自宅ドアから相手の家の手前へ歩く
-              // step 1: 相手の家のドアに入って実行＆アイコン表示
-              // step 2: 相手の家のドアから手前へ出てくる（ステップアウト）
-              // step 3: 相手の家の前から自分の家の玄関までしっかり歩いて戻る
-              // step 4: 自分の家のドアの中へ吸い込まれて入る
               if (nightSubStep === 0) {
                 charOverrides.set(ev.actor, {left: tPos.frontLeft, top: tPos.frontTop, mode: 'acting', walking: true, inside: false, deadLook: false, ashLook: false});
-              } else if (nightSubStep === 1) {
+              } else if (nightSubStep === 1 || nightSubStep === 2) {
                 charOverrides.set(ev.actor, {left: tPos.doorLeft, top: tPos.doorTop, mode: 'entering-door', walking: false, inside: false, deadLook: false, ashLook: false});
                 const borderCol = isOk ? (ev.role === 'doc' ? '#2ea043' : '#da3633') : '#94a3b8';
                 fxHtml += `
@@ -3399,25 +3433,25 @@
                 </div>
               </div>
             `;
-              } else if (nightSubStep === 2) {
+              } else if (nightSubStep === 3) {
                 charOverrides.set(ev.actor, {
                   left: tPos.frontLeft,
                   top: tPos.frontTop,
+                  startLeft: tPos.doorLeft,
+                  startTop: tPos.doorTop,
                   mode: 'step-out',
                   walking: true,
                   inside: false,
                   deadLook: false,
                   ashLook: false
                 });
-              } else if (nightSubStep === 3) {
-                charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false});
               } else {
-                charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'entering-door', walking: false, inside: false, deadLook: false, ashLook: false});
+                charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false});
               }
             } else {
               if (nightSubStep === 0) {
                 charOverrides.set(ev.actor, {left: tPos.frontLeft, top: tPos.frontTop, mode: 'acting', walking: true, inside: false, deadLook: false, ashLook: false});
-              } else if (nightSubStep === 1 || nightSubStep === 2) {
+              } else if (nightSubStep >= 1 && nightSubStep <= 3) {
                 charOverrides.set(ev.actor, {left: tPos.frontLeft, top: tPos.frontTop, mode: 'acting', walking: false, inside: false, deadLook: false, ashLook: false});
                 let badgeExtra = '';
                 let borderCol = '#fbbf24';
@@ -3433,25 +3467,23 @@
                     }).join('');
                     borderCol = '#2ea043';
                   } else {
-                    badgeExtra = '<span>❌</span>';
+                    badgeExtra = `<span>❌</span>`;
                     borderCol = '#94a3b8';
                   }
-                } else if (['trap', 'mag', 'bom', 'prov', 'cln', 'blm'].includes(ev.role)) {
+                } else {
                   badgeExtra = `<span>${isOk ? '⭕' : '❌'}</span>`;
                   borderCol = isOk ? '#2ea043' : '#94a3b8';
                 }
                 fxHtml += `
               <div class="night-motion-fx" style="left:${tPos.frontLeft}%; top:${tPos.frontTop}%;">
                 <div class="night-motion-badge" style="border-color:${borderCol};">
-                  ${renderRoleIcon(ev.camp, ev.role, 'sm', false)}
+                  ${renderRoleIcon(ev.camp || 'g', ev.role, 'sm', false)}
                   ${badgeExtra}
                 </div>
               </div>
             `;
-              } else if (nightSubStep === 3) {
-                charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false});
               } else {
-                charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'entering-door', walking: false, inside: false, deadLook: false, ashLook: false});
+                charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false});
               }
             }
           }
@@ -3460,7 +3492,7 @@
           if (aPos) {
             if (nightSubStep === 0) {
               charOverrides.set(ev.actor, {left: aPos.frontLeft, top: aPos.frontTop, mode: 'acting', walking: true, inside: false, deadLook: false, ashLook: false});
-            } else if (nightSubStep === 1 || nightSubStep === 2) {
+            } else if (nightSubStep >= 1 && nightSubStep <= 3) {
               charOverrides.set(ev.actor, {left: aPos.frontLeft, top: aPos.frontTop, mode: 'acting', walking: false, inside: false, deadLook: false, ashLook: false});
               if (ev.role === 'sur') {
                 fxHtml += `
@@ -3472,10 +3504,8 @@
               </div>
             `;
               }
-            } else if (nightSubStep === 3) {
-              charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false});
             } else {
-              charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'entering-door', walking: false, inside: false, deadLook: false, ashLook: false});
+              charOverrides.set(ev.actor, {left: aPos.doorLeft, top: aPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false});
             }
           }
         } else if (ev.kind === 'killed') {
@@ -3483,7 +3513,7 @@
           if (vPos) {
             if (nightSubStep === 0) {
               guestOverride = {left: vPos.frontLeft, top: vPos.frontTop, mode: 'acting', walking: true, inside: false};
-            } else if (nightSubStep === 1) {
+            } else if (nightSubStep === 1 || nightSubStep === 2) {
               guestOverride = {left: vPos.doorLeft, top: vPos.doorTop, mode: 'entering-door', walking: false, inside: false};
               fxHtml += `
             <div class="night-motion-fx" style="left:${vPos.hLeft}%; top:${vPos.hTop}%;">
@@ -3492,20 +3522,19 @@
               </div>
             </div>
           `;
-            } else if (nightSubStep === 2) {
+            } else if (nightSubStep === 3) {
               guestOverride = {
                 left: vPos.frontLeft,
                 top: vPos.frontTop,
+                startLeft: vPos.doorLeft,
+                startTop: vPos.doorTop,
                 mode: 'step-out',
                 walking: true,
                 inside: false
               };
               charOverrides.set(ev.target, {left: vPos.frontLeft, top: vPos.frontTop, mode: 'acting', walking: false, inside: false, deadLook: true, ashLook: false});
-            } else if (nightSubStep === 3) {
-              guestOverride = {left: 50, top: 50, mode: 'returning', walking: true, inside: false};
-              charOverrides.set(ev.target, {left: vPos.frontLeft, top: vPos.frontTop, mode: 'acting', walking: false, inside: false, deadLook: true, ashLook: false});
             } else {
-              guestOverride = {left: 50, top: 50, mode: 'entering-door', walking: false, inside: false};
+              guestOverride = {left: 50, top: 50, mode: 'returning', walking: true, inside: false};
               charOverrides.set(ev.target, {left: vPos.frontLeft, top: vPos.frontTop, mode: 'acting', walking: false, inside: false, deadLook: true, ashLook: false});
             }
           }
@@ -3514,7 +3543,7 @@
           if (vPos) {
             const isDown = nightSubStep >= 1;
             charOverrides.set(ev.target, {left: vPos.frontLeft, top: vPos.frontTop, mode: 'acting', walking: nightSubStep === 0, inside: false, deadLook: isDown, ashLook: isDown});
-            if (nightSubStep === 1 || nightSubStep === 2) {
+            if (nightSubStep >= 1 && nightSubStep <= 3) {
               fxHtml += `
             <div class="night-motion-fx" style="left:${vPos.frontLeft}%; top:${vPos.frontTop}%;">
               <div class="night-motion-badge" style="border-color:#da3633;">
@@ -3530,7 +3559,7 @@
           if (vPos) {
             if (nightSubStep === 0) {
               guestOverride = {left: vPos.frontLeft, top: vPos.frontTop, mode: 'acting', walking: true, inside: false};
-            } else if (nightSubStep === 1) {
+            } else if (nightSubStep === 1 || nightSubStep === 2) {
               guestOverride = {left: vPos.doorLeft, top: vPos.doorTop, mode: 'entering-door', walking: false, inside: false};
               fxHtml += `
             <div class="night-motion-fx" style="left:${vPos.hLeft}%; top:${vPos.hTop}%;">
@@ -3540,18 +3569,18 @@
               </div>
             </div>
           `;
-            } else if (nightSubStep === 2) {
+            } else if (nightSubStep === 3) {
               guestOverride = {
                 left: vPos.frontLeft,
                 top: vPos.frontTop,
+                startLeft: vPos.doorLeft,
+                startTop: vPos.doorTop,
                 mode: 'step-out',
                 walking: true,
                 inside: false
               };
-            } else if (nightSubStep === 3) {
-              guestOverride = {left: 50, top: 50, mode: 'returning', walking: true, inside: false};
             } else {
-              guestOverride = {left: 50, top: 50, mode: 'entering-door', walking: false, inside: false};
+              guestOverride = {left: 50, top: 50, mode: 'returning', walking: true, inside: false};
             }
           }
         } else if (ev.kind === 'blocked_pol') {
@@ -3559,7 +3588,9 @@
           if (vPos) {
             if (nightSubStep === 0) {
               guestOverride = {left: vPos.policeStopLeft, top: vPos.policeStopTop, mode: 'acting', walking: true, inside: false};
-            } else if (nightSubStep === 1 || nightSubStep === 2) {
+            } else if (nightSubStep === 1) {
+              guestOverride = {left: vPos.policeStopLeft, top: vPos.policeStopTop, mode: 'acting', walking: false, inside: false};
+            } else if (nightSubStep === 2 || nightSubStep === 3) {
               guestOverride = {left: vPos.policeStopLeft, top: vPos.policeStopTop, mode: 'acting', walking: false, inside: false};
               charOverrides.set(ev.target, {left: vPos.targetStopLeft, top: vPos.targetStopTop, mode: 'step-out', walking: false, inside: false, deadLook: false, ashLook: false});
               fxHtml += `
@@ -3570,34 +3601,9 @@
               </div>
             </div>
           `;
-            } else if (nightSubStep === 3) {
+            } else {
               guestOverride = {left: 50, top: 50, mode: 'returning', walking: true, inside: false};
               charOverrides.set(ev.target, {left: vPos.doorLeft, top: vPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false});
-            } else {
-              guestOverride = {left: 50, top: 50, mode: 'entering-door', walking: false, inside: false};
-              charOverrides.set(ev.target, {left: vPos.doorLeft, top: vPos.doorTop, mode: 'entering-door', walking: false, inside: false, deadLook: false, ashLook: false});
-            }
-          }
-        } else if (ev.kind === 'trapped') {
-          const hPos = posMap.get(ev.house != null ? ev.house : ev.target);
-          const vPos = posMap.get(ev.target);
-          if (hPos && vPos) {
-            if (nightSubStep === 0) {
-              charOverrides.set(ev.target, {left: hPos.frontLeft, top: hPos.frontTop, mode: 'acting', walking: true, inside: false, deadLook: false, ashLook: false});
-            } else if (nightSubStep === 1 || nightSubStep === 2) {
-              charOverrides.set(ev.target, {left: hPos.frontLeft, top: hPos.frontTop, mode: 'acting', walking: false, inside: false, deadLook: false, ashLook: false});
-              fxHtml += `
-            <div class="night-motion-fx" style="left:${hPos.frontLeft}%; top:${hPos.frontTop}%;">
-              <div class="night-motion-badge" style="border-color:#2ea043;">
-                ${renderRoleIcon('g', 'trap', 'sm', false)}
-                <span>❌</span>
-              </div>
-            </div>
-          `;
-            } else if (nightSubStep === 3) {
-              charOverrides.set(ev.target, {left: vPos.doorLeft, top: vPos.doorTop, mode: 'returning', walking: true, inside: false, deadLook: false, ashLook: false});
-            } else {
-              charOverrides.set(ev.target, {left: vPos.doorLeft, top: vPos.doorTop, mode: 'entering-door', walking: false, inside: false, deadLook: false, ashLook: false});
             }
           }
         }
@@ -3606,7 +3612,7 @@
       const guestEl0 = document.getElementById('guest-char-0');
       if (guestEl0) {
         if (guestOverride) {
-          const wasHidden = guestEl0.classList.contains('inside-house')
+          const wasHidden = (guestEl0.classList.contains('inside-house') || guestEl0.classList.contains('night-entering-door'))
             && (guestOverride.mode === 'acting' || guestOverride.mode === 'step-out');
           if (wasHidden) {
             const sx = guestOverride.startLeft !== undefined ? guestOverride.startLeft : 50;
@@ -3635,7 +3641,9 @@
         }
       }
 
-      const pendingDeathSet = new Set((view.newDeaths || []).map(d => d.id));
+      const newDeathsList = view.newDeaths || [];
+      const pendingDeathSet = new Set(newDeathsList.map(d => d.id));
+      const currentMorningDeathIdx = view.morningDeathIdx || 0;
 
       players.forEach((p) => {
         const pos = posMap.get(p.id);
@@ -3649,22 +3657,23 @@
         const isBeingExiled = isExiling && lastExile.id === p.id;
         const isGhostTargetNow = isExiling && lastExile.ghostVictimId === p.id;
         const isNewlyDead = pendingDeathSet.has(p.id);
+        const canAppearInNight = isNightMotion && (p.alive || isNewlyDead);
 
-        // 死体ズーム演出が開始された人（現在のズーム対象およびすでにズーム済みの人）だけ死体表示にする
-        const deathOrderIdx = Array.isArray(view.newDeaths)
-          ? view.newDeaths.findIndex(d => d.id === p.id)
-          : -1;
-        const isDeathRevealedYet = !isNewlyDead
-          || (isMorningDeaths && deathOrderIdx !== -1 && deathOrderIdx <= (view.morningDeathIdx || 0))
-          || (!phaseTransition && !isNightMotion);
+        // 昨晩殺された人は、昼になった瞬間(toDay)やねずみ演出中、まだ自分の死体ズーム番が来ていない間は出現させない
+        let hiddenBeforeDeathReveal = false;
+        if (isNewlyDead) {
+          if (phaseTransition === 'toDay' || isMorningRat) {
+            hiddenBeforeDeathReveal = true;
+          } else if (isMorningDeaths) {
+            const myDeathOrder = newDeathsList.findIndex(d => d.id === p.id);
+            if (myDeathOrder > currentMorningDeathIdx) {
+              hiddenBeforeDeathReveal = true;
+            }
+          }
+        }
 
-        // 夜の行動再生中は「その夜に生存していた人（p.alive または isNewlyDead）」のみ生存見た目にする
-        // すでに過去のターンに死亡していた人は死亡状態（お墓・灰）のまま維持
-        const keepAliveDuringTransition = (isNightMotion && isNewlyDead)
-          || ((phaseTransition === 'toDay' || isMorningRat || isMorningDeaths) && isNewlyDead && !isDeathRevealedYet);
-
-        let visualAlive = p.alive || isBeingExiled || isGhostTargetNow || keepAliveDuringTransition;
-        let visualAsh = !!p.isAsh && !visualAlive;
+        let visualAlive = p.alive || isBeingExiled || isGhostTargetNow || canAppearInNight;
+        let visualAsh = !!p.isAsh && !canAppearInNight;
 
         const ov = charOverrides.get(p.id);
         if (ov) {
@@ -3677,7 +3686,7 @@
           : !!p.bombed;
 
         const isCurrentZoomDeath = isMorningDeaths && activeMorningDeath && activeMorningDeath.id === p.id;
-        const hideDeathRoleYet = isNewlyDead && !isDeathRevealedYet && !isCurrentZoomDeath;
+        const hideDeathRoleYet = (phaseTransition === 'toDay' || isMorningDeaths) && isNewlyDead && !isCurrentZoomDeath && hiddenBeforeDeathReveal;
 
         let overlayIcon = '';
         if (!visualAlive) overlayIcon = visualAsh ? '⚱️' : '🪦';
@@ -3688,6 +3697,14 @@
         const subText = !visualAlive
           ? (hideDeathRoleYet ? '???' : (p.rev ? p.rev.t : '死亡'))
           : (isMe ? 'あなた' : (p.mate ? '仲間' : ''));
+
+        // 死んだ人目線：全員の役職を家の上に表示
+        const deadRevealHtml = p.deadReveal ? `
+      <div style="display:inline-flex; align-items:center; justify-content:center; gap:3px; margin-bottom:2px; padding:1px 5px; border-radius:6px; background:rgba(15,23,42,0.88); border:1px solid #475569;">
+        ${renderRoleIcon(p.deadReveal.c, p.deadReveal.role, 'xs', false)}
+        <span style="font-size:10px; font-weight:bold; color:#f8fafc;">${p.deadReveal.t}</span>
+      </div>
+    ` : '';
 
         const invChoices = invHouseResults.get(p.id);
         const invResultHtml = (invChoices && invChoices.length > 0) ? `
@@ -3706,6 +3723,7 @@
       <div class="house-node ${visualAlive ? '' : 'dead'} ${isHouseBombed ? 'bombed' : ''} ${isMe ? 'is-me' : ''} ${p.mate ? 'is-mate' : ''} ${isSelected ? 'selected-target' : ''}"
            style="left:${hLeft}%; top:${hTop}%; z-index:${zBase}; --depth-scale:${depthScale.toFixed(3)};"
            onclick="onHouseClick(${p.id})">
+        ${deadRevealHtml}
         ${ph === 'day' && !phaseTransition ? `<div class="vote-pill ${votes > 0 ? 'has-votes' : ''}">🗳️ ${votes}</div>` : ''}
         <div class="house-graphic">
           <div class="house-ground-shadow"></div>
@@ -3748,10 +3766,22 @@
           el.classList.add('exile-anim');
         } else {
           el.classList.remove('exile-anim');
-          if (ov) {
-            const wasInsideHouse = el.classList.contains('inside-house')
+          // 投票で吊られた後は死体を残さない（非表示にする）
+          if (p.exiled && !visualAlive) {
+            el.classList.remove('entering-house', 'night-acting', 'night-returning', 'night-entering-door', 'night-step-out', 'is-walking');
+            el.classList.add('inside-house');
+          } else if (hiddenBeforeDeathReveal) {
+            // 夜に殺された人は昼になった瞬間は現れず、死体ズーム演出の順番が来たら現れる
+            el.style.transition = 'none';
+            el.classList.remove('entering-house', 'night-acting', 'night-returning', 'night-entering-door', 'night-step-out', 'is-walking');
+            el.classList.add('inside-house');
+            applyCharacterPositionAndFacing(el, p.id, dLeft, dTop);
+            void el.offsetWidth;
+            el.style.transition = '';
+          } else if (ov) {
+            const wasInsideOrDoor = (el.classList.contains('inside-house') || el.classList.contains('night-entering-door'))
               && (ov.mode === 'acting' || ov.mode === 'step-out');
-            if (wasInsideHouse) {
+            if (wasInsideOrDoor) {
               const sx = ov.startLeft !== undefined ? ov.startLeft : doorLeft;
               const sy = ov.startTop !== undefined ? ov.startTop : doorTop;
               el.style.transition = 'none';

@@ -9,7 +9,6 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ★ クライアントと完全同期するフェーズ遷移タイマー定数（ms）
 const PHASE_TIMERS = {
   roleReveal: 4500,
   toDay: 3800,
@@ -198,6 +197,7 @@ function startNewGame() {
       name: u.name,
       color: u.color,
       alive: true,
+      exiled: false,
       isAsh: false,
       bombed: false,
       bombPlanted: false,
@@ -209,6 +209,7 @@ function startNewGame() {
       last: {},
       nightEvents: [],
       privateLogs: [],
+      pendingPrivateLogs: [],
       thiefNotice: null,
       roleHistory: []
     });
@@ -233,6 +234,7 @@ function startNewGame() {
       name: availBotNames[botNameIdx % availBotNames.length],
       color: col,
       alive: true,
+      exiled: false,
       isAsh: false,
       bombed: false,
       bombPlanted: false,
@@ -244,6 +246,7 @@ function startNewGame() {
       last: {},
       nightEvents: [],
       privateLogs: [],
+      pendingPrivateLogs: [],
       thiefNotice: null,
       roleHistory: []
     });
@@ -307,9 +310,46 @@ function addPublicLog(day, icons) {
   room.game.publicLogs.push({ day, scope: 'public', icons });
 }
 
-function addPrivateLog(player, day, icons) {
+// 個人ログは演出が終わったタイミングで公開されるよう、イベントインデックス付きでキューに入れる
+function queuePrivateLog(player, day, icons, afterEventIdx) {
   if (!player) return;
-  player.privateLogs.push({ day, scope: 'private', icons });
+  player.pendingPrivateLogs.push({
+    day,
+    scope: 'private',
+    icons,
+    afterEventIdx: typeof afterEventIdx === 'number' ? afterEventIdx : 0
+  });
+}
+
+function flushPrivateLogsUpTo(player, maxEventIdx) {
+  if (!player || !player.pendingPrivateLogs.length) return false;
+  const ready = [];
+  const remain = [];
+  player.pendingPrivateLogs.forEach(item => {
+    if (item.afterEventIdx <= maxEventIdx) {
+      ready.push({ day: item.day, scope: 'private', icons: item.icons });
+    } else {
+      remain.push(item);
+    }
+  });
+  if (ready.length > 0) {
+    player.privateLogs.push(...ready);
+    player.pendingPrivateLogs = remain;
+    return true;
+  }
+  return false;
+}
+
+function flushAllPendingPrivateLogs() {
+  if (!room.game) return;
+  room.game.players.forEach(p => {
+    if (p.pendingPrivateLogs.length > 0) {
+      p.pendingPrivateLogs.forEach(item => {
+        p.privateLogs.push({ day: item.day, scope: 'private', icons: item.icons });
+      });
+      p.pendingPrivateLogs = [];
+    }
+  });
 }
 
 function submitBotDayVotes() {
@@ -467,7 +507,9 @@ function resolveDayPhase() {
     return;
   }
 
+  // 投票で吊られた後は死体を残さない（exiled: true）
   exiledPlayer.alive = false;
+  exiledPlayer.exiled = true;
   exiledPlayer.rev = {
     c: exiledPlayer.rc,
     role: exiledPlayer.trueRole,
@@ -581,7 +623,6 @@ function resolveNightPhase() {
     visitedTargets.get(actorId).add(targetId);
   };
 
-  // キル候補管理: targetId -> [{ killer, role, camp, isThief, forceUnknown, priority }]
   const pendingKills = new Map();
   const addPendingKill = (targetId, info) => {
     if (!pendingKills.has(targetId)) pendingKills.set(targetId, []);
@@ -592,7 +633,7 @@ function resolveNightPhase() {
   const blockedPlayers = new Set();
   const pendingThiefCopies = [];
 
-  // 事前サバイバーシールドの有効化
+  // サバイバーシールド有効化
   g.players.forEach(p => {
     if (!p.alive) return;
     const act = actions[p.id];
@@ -603,10 +644,7 @@ function resolveNightPhase() {
     }
   });
 
-  // =========================================================================
-  // 【第1段階】最速グループ：シリアルキラー (sk) & 魔術師 (mag)
-  // ポリス・トラッパーより先にシリアルキラーのキルを確定させる
-  // =========================================================================
+  // 【第1段階】シリアルキラー (sk) & 魔術師 (mag)（ポリス・トラッパーより先に実行）
   const fastestActors = shuffle(
     g.players.filter(p => p.alive && (p.trueRole === 'sk' || p.trueRole === 'mag'))
   );
@@ -621,7 +659,6 @@ function resolveNightPhase() {
     recordVisit(actor.id, target.id);
 
     if (actor.trueRole === 'sk') {
-      // SKはポリス・トラッパーより先にキルを確定（死亡した人は後続行動不可になる）
       target.alive = false;
       target.killedByUnknown = true;
       addPendingKill(target.id, {
@@ -650,39 +687,36 @@ function resolveNightPhase() {
       } else {
         actor.alive = false;
         actor.isAsh = true;
-        actor.nightEvents.push({
+        const evIdx1 = actor.nightEvents.push({
           kind: 'act', actor: actor.id, target: target.id, role: 'mag', camp: 'b', result: 'fail'
-        });
+        }) - 1;
         actor.nightEvents.push({
           kind: 'self_ash', target: actor.id
         });
-        addPrivateLog(actor, g.day, [
+        queuePrivateLog(actor, g.day, [
           { type: 'role', c: 'b', role: 'mag' },
           { type: 'char', id: target.id },
           { type: 'mark', val: 'fail' }
-        ]);
+        ], evIdx1);
       }
     }
   });
 
-  // =========================================================================
-  // 【第2段階】ポリス & トラッパー の相互作用解決
-  // トラッパーの「置きに行く判定」と、訪問者が罠に「かかる判定」を分離
-  // =========================================================================
+  // 【第2段階】ポリス & トラッパー
   g.players.forEach(p => {
     if (!p.alive || p.trueRole !== 'fool') return;
     const act = actions[p.id];
     if (!act || act.t === undefined || act.t === null) return;
     if (p.er === 'pol' || p.er === 'trap') {
       p.last[p.er] = act.t;
-      p.nightEvents.push({
+      const evIdx = p.nightEvents.push({
         kind: 'act', actor: p.id, target: act.t, role: p.er, camp: 'g', result: 'fail'
-      });
-      addPrivateLog(p, g.day, [
+      }) - 1;
+      queuePrivateLog(p, g.day, [
         { type: 'role', c: 'g', role: p.er },
         { type: 'char', id: act.t },
         { type: 'mark', val: 'fail' }
-      ]);
+      ], evIdx);
     }
   });
 
@@ -723,113 +757,119 @@ function resolveNightPhase() {
     ...shuffle(activePolices.filter(po => !trapperIdSet.has(po.targetId)))
   ];
 
+  // まずトラッパーの「置きに行く演出」を先に登録しておく（かかった場合の演出がその後に来るように）
+  const activeHouseTraps = new Map();
+  activeTrappers.forEach(tr => {
+    if (!tr.player.alive) return;
+    const stoppedByPol = sortedPolices.some(po => po.player.alive && po.targetId === tr.player.id);
+    if (stoppedByPol) {
+      tr.stoppedByPolice = true;
+      return;
+    }
+    tr.player.uses.trap = (tr.player.uses.trap || 0) + 1;
+    recordVisit(tr.player.id, tr.targetId);
+
+    const placeIdx = tr.player.nightEvents.push({
+      kind: 'trap_place', actor: tr.player.id, target: tr.targetId
+    }) - 1;
+    tr.placeEventIdx = placeIdx;
+
+    if (!activeHouseTraps.has(tr.targetId)) activeHouseTraps.set(tr.targetId, []);
+    activeHouseTraps.get(tr.targetId).push(tr);
+  });
+
   sortedPolices.forEach(po => {
     const polPlayer = po.player;
     if (!polPlayer.alive || blockedPlayers.has(polPlayer.id)) return;
     const targetId = po.targetId;
     polPlayer.last.pol = targetId;
 
-    const trapOnHouse = activeTrappers.find(
-      tr => tr.targetId === targetId && !tr.stoppedByPolice && !tr.triggeredByVisitor
-    );
-
-    if (trapOnHouse) {
-      trapOnHouse.triggeredByVisitor = true;
+    const traps = activeHouseTraps.get(targetId);
+    if (traps && traps.length > 0) {
+      const trapEntry = traps.shift();
+      trapEntry.triggeredByVisitor = true;
       blockedPlayers.add(polPlayer.id);
       recordVisit(polPlayer.id, targetId);
 
-      // かかった場合：灰色のキャラがトラップに引っかかった演出＆個人ログ
-      polPlayer.nightEvents.push({
-        kind: 'trap_triggered', trapperId: trapOnHouse.player.id, visitorId: polPlayer.id, house: targetId
-      });
-      addPrivateLog(trapOnHouse.player, g.day, [
-        { type: 'char', id: trapOnHouse.player.id },
+      // 訪問者側＆トラッパー側両方にトラップ発動演出を追加
+      const polTrigIdx = polPlayer.nightEvents.push({
+        kind: 'trap_triggered', trapperId: trapEntry.player.id, visitorId: polPlayer.id, house: targetId
+      }) - 1;
+      const trapTrigIdx = trapEntry.player.nightEvents.push({
+        kind: 'trap_triggered', trapperId: trapEntry.player.id, visitorId: polPlayer.id, house: targetId
+      }) - 1;
+
+      queuePrivateLog(trapEntry.player, g.day, [
+        { type: 'char', id: trapEntry.player.id },
         { type: 'role', c: 'g', role: 'trap' },
         { type: 'grayChar' }
-      ]);
+      ], trapTrigIdx);
+      queuePrivateLog(polPlayer, g.day, [
+        { type: 'role', c: 'g', role: 'trap' },
+        { type: 'mark', val: 'fail' }
+      ], polTrigIdx);
       return;
     }
 
     const targetPlayer = g.players.find(x => x.id === targetId);
     if (targetPlayer && (targetPlayer.trueRole === 'sk' || targetPlayer.trueRole === 'mag')) {
-      polPlayer.nightEvents.push({
+      const evIdx = polPlayer.nightEvents.push({
         kind: 'act', actor: polPlayer.id, target: targetId, role: 'pol', camp: polPlayer.camp, result: 'fail'
-      });
-      addPrivateLog(polPlayer, g.day, [
+      }) - 1;
+      queuePrivateLog(polPlayer, g.day, [
         { type: 'role', c: polPlayer.camp, role: 'pol' },
         { type: 'char', id: targetId },
         { type: 'mark', val: 'fail' }
-      ]);
+      ], evIdx);
       return;
     }
 
     blockedPlayers.add(targetId);
-    const stoppedTrap = activeTrappers.find(tr => tr.player.id === targetId);
-    if (stoppedTrap) {
-      stoppedTrap.stoppedByPolice = true;
-    }
 
-    polPlayer.nightEvents.push({
+    const evIdx = polPlayer.nightEvents.push({
       kind: 'act', actor: polPlayer.id, target: targetId, role: 'pol', camp: polPlayer.camp, result: 'ok'
-    });
-    if (targetPlayer && targetPlayer.alive) {
-      targetPlayer.nightEvents.push({
-        kind: 'blocked_pol', target: targetId
-      });
-      addPrivateLog(targetPlayer, g.day, [
-        { type: 'role', c: 'g', role: 'pol' },
-        { type: 'mark', val: 'fail' }
-      ]);
-    }
-    addPrivateLog(polPlayer, g.day, [
+    }) - 1;
+    queuePrivateLog(polPlayer, g.day, [
       { type: 'role', c: polPlayer.camp, role: 'pol' },
       { type: 'char', id: targetId },
       { type: 'mark', val: 'ok' }
-    ]);
-  });
+    ], evIdx);
 
-  // トラッパーの「置きに行く判定・演出」
-  const activeHouseTraps = new Map();
-  activeTrappers.forEach(tr => {
-    if (!tr.player.alive || tr.stoppedByPolice) return;
-    tr.player.uses.trap = (tr.player.uses.trap || 0) + 1;
-    recordVisit(tr.player.id, tr.targetId);
-
-    // 置きに行く演出（誰かがかかる描写とは別）
-    tr.player.nightEvents.push({
-      kind: 'trap_place', actor: tr.player.id, target: tr.targetId, triggered: tr.triggeredByVisitor
-    });
-
-    // かからなかった場合は「自分のキャラ・トラップアイコン」のみを個人ログに記録
-    if (!tr.triggeredByVisitor) {
-      addPrivateLog(tr.player, g.day, [
-        { type: 'char', id: tr.player.id },
-        { type: 'role', c: 'g', role: 'trap' }
-      ]);
-    }
-
-    if (!tr.triggeredByVisitor) {
-      if (!activeHouseTraps.has(tr.targetId)) activeHouseTraps.set(tr.targetId, []);
-      activeHouseTraps.get(tr.targetId).push(tr.player);
+    if (targetPlayer && targetPlayer.alive) {
+      const blkIdx = targetPlayer.nightEvents.push({
+        kind: 'blocked_pol', target: targetId
+      }) - 1;
+      queuePrivateLog(targetPlayer, g.day, [
+        { type: 'role', c: 'g', role: 'pol' },
+        { type: 'mark', val: 'fail' }
+      ], blkIdx);
     }
   });
 
-  // =========================================================================
-  // 【第3段階】ボマー起爆（ポリス・トラッパーの後）＆その他役職の解決
-  // =========================================================================
+  // 【第3段階】ボマー起爆＆その他役職
   const checkAndTriggerHouseTrap = (visitor, targetId) => {
     const traps = activeHouseTraps.get(targetId);
     if (traps && traps.length > 0) {
-      const trapperOwner = traps.shift();
+      const trapEntry = traps.shift();
+      trapEntry.triggeredByVisitor = true;
       blockedPlayers.add(visitor.id);
-      visitor.nightEvents.push({
-        kind: 'trap_triggered', trapperId: trapperOwner.id, visitorId: visitor.id, house: targetId
-      });
-      addPrivateLog(trapperOwner, g.day, [
-        { type: 'char', id: trapperOwner.id },
+
+      const visTrigIdx = visitor.nightEvents.push({
+        kind: 'trap_triggered', trapperId: trapEntry.player.id, visitorId: visitor.id, house: targetId
+      }) - 1;
+      const trapTrigIdx = trapEntry.player.nightEvents.push({
+        kind: 'trap_triggered', trapperId: trapEntry.player.id, visitorId: visitor.id, house: targetId
+      }) - 1;
+
+      queuePrivateLog(trapEntry.player, g.day, [
+        { type: 'char', id: trapEntry.player.id },
         { type: 'role', c: 'g', role: 'trap' },
         { type: 'grayChar' }
-      ]);
+      ], trapTrigIdx);
+      queuePrivateLog(visitor, g.day, [
+        { type: 'role', c: 'g', role: 'trap' },
+        { type: 'mark', val: 'fail' }
+      ], visTrigIdx);
       return true;
     }
     return false;
@@ -844,6 +884,9 @@ function resolveNightPhase() {
       const bombTargets = g.players.filter(x => aliveAtNightStart.has(x.id) && x.bombPlanted).map(x => x.id);
       if (bombTargets.length > 0) {
         const killedTargets = [];
+        const blastEv = { kind: 'bomb_blast', targets: bombTargets, killedTargets };
+        g.players.forEach(pl => pl.nightEvents.push(blastEv));
+
         bombTargets.forEach(tid => {
           const tPlayer = g.players.find(x => x.id === tid);
           if (tPlayer && aliveAtNightStart.has(tPlayer.id)) {
@@ -852,26 +895,25 @@ function resolveNightPhase() {
             if (!tPlayer.shieldActive) {
               tPlayer.alive = false;
               killedTargets.push(tid);
-              addPrivateLog(tPlayer, g.day, [
+              const tIdx = tPlayer.nightEvents.length - 1;
+              queuePrivateLog(tPlayer, g.day, [
                 { type: 'grayChar' },
                 { type: 'role', c: 'b', role: 'bom' },
                 { type: 'char', id: tPlayer.id }
-              ]);
+              ], tIdx);
             }
           }
         });
-        const blastEv = { kind: 'bomb_blast', targets: bombTargets, killedTargets };
-        g.players.forEach(pl => pl.nightEvents.push(blastEv));
-        addPrivateLog(p, g.day, [
+        const bomIdx = p.nightEvents.length - 1;
+        queuePrivateLog(p, g.day, [
           { type: 'role', c: 'b', role: 'bom' },
           ...bombTargets.map(tid => ({ type: 'char', id: tid })),
           { type: 'mark', val: 'ok' }
-        ]);
+        ], bomIdx);
       }
     }
   });
 
-  // 生存しているその他役職のみ行動（殺された人は行動できない）
   const remainingActors = shuffle(
     g.players.filter(p => p.alive && !['sk', 'mag', 'pol', 'trap'].includes(p.trueRole))
   );
@@ -896,14 +938,14 @@ function resolveNightPhase() {
       if (['inv', 'rat', 'look', 'trk'].includes(actor.er)) {
         infoChecks.push({ actor, target, isFool: true });
       } else {
-        actor.nightEvents.push({
+        const evIdx = actor.nightEvents.push({
           kind: 'act', actor: actor.id, target: target.id, role: actor.er, camp: 'g', result: 'fail'
-        });
-        addPrivateLog(actor, g.day, [
+        }) - 1;
+        queuePrivateLog(actor, g.day, [
           { type: 'role', c: 'g', role: actor.er },
           { type: 'char', id: target.id },
           { type: 'mark', val: 'fail' }
-        ]);
+        ], evIdx);
       }
       return;
     }
@@ -926,58 +968,58 @@ function resolveNightPhase() {
       if (actor.last.doc === target.id) return;
       actor.last.doc = target.id;
       docSavedTargets.add(target.id);
-      actor.nightEvents.push({
+      const evIdx = actor.nightEvents.push({
         kind: 'act', actor: actor.id, target: target.id, role: 'doc', camp: actor.camp, result: 'ok'
-      });
-      addPrivateLog(actor, g.day, [
+      }) - 1;
+      queuePrivateLog(actor, g.day, [
         { type: 'role', c: actor.camp, role: 'doc' },
         { type: 'char', id: target.id },
         { type: 'mark', val: 'ok' }
-      ]);
+      ], evIdx);
     } else if (r === 'prov') {
       if ((actor.uses.prov || 0) >= (LIM.prov || 2)) return;
       actor.uses.prov = (actor.uses.prov || 0) + 1;
       target.extraVotes += 2;
-      actor.nightEvents.push({
+      const evIdx = actor.nightEvents.push({
         kind: 'act', actor: actor.id, target: target.id, role: 'prov', camp: actor.camp, result: 'ok'
-      });
-      addPrivateLog(actor, g.day, [
+      }) - 1;
+      queuePrivateLog(actor, g.day, [
         { type: 'role', c: actor.camp, role: 'prov' },
         { type: 'char', id: target.id },
         { type: 'mark', val: 'ok' }
-      ]);
+      ], evIdx);
     } else if (r === 'blm') {
       if ((actor.uses.blm || 0) >= (LIM.blm || 2)) return;
       actor.uses.blm = (actor.uses.blm || 0) + 1;
       target.blamed = true;
-      actor.nightEvents.push({
+      const evIdx = actor.nightEvents.push({
         kind: 'act', actor: actor.id, target: target.id, role: 'blm', camp: 'r', result: 'ok'
-      });
-      addPrivateLog(actor, g.day, [
+      }) - 1;
+      queuePrivateLog(actor, g.day, [
         { type: 'role', c: 'r', role: 'blm' },
         { type: 'char', id: target.id },
         { type: 'mark', val: 'ok' }
-      ]);
+      ], evIdx);
     } else if (r === 'cln') {
       target.cleaned = true;
-      actor.nightEvents.push({
+      const evIdx = actor.nightEvents.push({
         kind: 'act', actor: actor.id, target: target.id, role: 'cln', camp: 'r', result: 'ok'
-      });
-      addPrivateLog(actor, g.day, [
+      }) - 1;
+      queuePrivateLog(actor, g.day, [
         { type: 'role', c: 'r', role: 'cln' },
         { type: 'char', id: target.id },
         { type: 'mark', val: 'ok' }
-      ]);
+      ], evIdx);
     } else if (r === 'bom') {
       target.bombPlanted = true;
-      actor.nightEvents.push({
+      const evIdx = actor.nightEvents.push({
         kind: 'act', actor: actor.id, target: target.id, role: 'bom', camp: 'b', result: 'ok'
-      });
-      addPrivateLog(actor, g.day, [
+      }) - 1;
+      queuePrivateLog(actor, g.day, [
         { type: 'role', c: 'b', role: 'bom' },
         { type: 'char', id: target.id },
         { type: 'mark', val: 'ok' }
-      ]);
+      ], evIdx);
     } else if (r === 'thf') {
       if ((actor.uses.thf || 0) >= (LIM.thf || 1)) return;
       actor.uses.thf = (actor.uses.thf || 0) + 1;
@@ -1002,9 +1044,17 @@ function resolveNightPhase() {
     }
   });
 
-  // =========================================================================
-  // 【第4段階】重複キル・ドクター蘇生・サバイバーシールドの精算
-  // =========================================================================
+  // 誰にもかからなかったトラッパーの個人ログを登録
+  activeTrappers.forEach(tr => {
+    if (!tr.stoppedByPolice && !tr.triggeredByVisitor && tr.placeEventIdx !== undefined) {
+      queuePrivateLog(tr.player, g.day, [
+        { type: 'char', id: tr.player.id },
+        { type: 'role', c: 'g', role: 'trap' }
+      ], tr.placeEventIdx);
+    }
+  });
+
+  // 【第4段階】重複キル・ドクター蘇生・サバイバーシールド精算
   pendingKills.forEach((rawKillList, targetId) => {
     const target = g.players.find(x => x.id === targetId);
     if (!target) return;
@@ -1013,53 +1063,58 @@ function resolveNightPhase() {
 
     if (target.shieldActive) {
       killList.forEach(k => {
-        k.killer.nightEvents.push({
+        const kIdx = k.killer.nightEvents.push({
           kind: 'act', actor: k.killer.id, target: target.id, role: k.role, camp: k.camp, result: 'ok'
-        });
-        addPrivateLog(k.killer, g.day, [
+        }) - 1;
+        queuePrivateLog(k.killer, g.day, [
           { type: 'role', c: k.camp, role: k.role },
           { type: 'char', id: target.id },
           { type: 'mark', val: 'ok' }
-        ]);
+        ], kIdx);
       });
       return;
     }
 
     killList.forEach(k => {
-      k.killer.nightEvents.push({
+      const kIdx = k.killer.nightEvents.push({
         kind: 'act', actor: k.killer.id, target: target.id, role: k.role, camp: k.camp, result: 'ok'
-      });
-      addPrivateLog(k.killer, g.day, [
+      }) - 1;
+      queuePrivateLog(k.killer, g.day, [
         { type: 'role', c: k.camp, role: k.role },
         { type: 'char', id: target.id },
         { type: 'mark', val: 'ok' }
-      ]);
+      ], kIdx);
 
-      target.nightEvents.push({
-        kind: 'killed', target: target.id, role: k.role, camp: k.camp
-      });
+      // インポスターに殺された時は役職がバレないようにドクロアイコンにする
+      const isImpostorKill = (k.camp === 'r');
+      const tKillIdx = target.nightEvents.push({
+        kind: 'killed',
+        target: target.id,
+        role: isImpostorKill ? '' : k.role,
+        camp: isImpostorKill ? 'n' : k.camp
+      }) - 1;
 
-      const causeIcon = (k.camp === 'r')
+      const causeIcon = isImpostorKill
         ? { type: 'skull' }
         : { type: 'role', c: k.camp, role: k.role };
-      addPrivateLog(target, g.day, [
+      queuePrivateLog(target, g.day, [
         { type: 'grayChar' },
         causeIcon,
         { type: 'char', id: target.id }
-      ]);
+      ], tKillIdx);
     });
 
     if (docSavedTargets.has(target.id)) {
       target.alive = true;
       target.killedByUnknown = false;
-      target.nightEvents.push({
+      const tRevIdx = target.nightEvents.push({
         kind: 'revived', target: target.id, saved: true
-      });
-      addPrivateLog(target, g.day, [
+      }) - 1;
+      queuePrivateLog(target, g.day, [
         { type: 'grayChar' },
         { type: 'role', c: 'g', role: 'doc' },
         { type: 'char', id: target.id }
-      ]);
+      ], tRevIdx);
       return;
     }
 
@@ -1075,7 +1130,6 @@ function resolveNightPhase() {
     });
   });
 
-  // シーフの役職コピー反映（生存かつ殺害成功時のみ）
   pendingThiefCopies.forEach(({ thief, victim }) => {
     if (!thief.alive) return;
     thief.rc = victim.rc;
@@ -1092,9 +1146,7 @@ function resolveNightPhase() {
     thief.thiefNotice = { label: roleLabel(thief.camp, thief.er) };
   });
 
-  // =========================================================================
-  // 【第5段階】情報系役職 (inv, rat, look, trk) の解決（生存者のみ）
-  // =========================================================================
+  // 【第5段階】情報系役職
   const nextMorningRats = [];
 
   infoChecks.forEach(({ actor, target, isFool }) => {
@@ -1120,23 +1172,23 @@ function resolveNightPhase() {
         ? shuffle([decoy1, decoy2])
         : shuffle([realChoice, decoy1]);
 
-      actor.nightEvents.push({
+      const evIdx = actor.nightEvents.push({
         kind: 'act', actor: actor.id, target: target.id, role: 'inv', camp: actor.camp, result: 'ok', choiceIcons
-      });
-      addPrivateLog(actor, g.day, [
+      }) - 1;
+      queuePrivateLog(actor, g.day, [
         { type: 'role', c: actor.camp, role: 'inv' },
         { type: 'char', id: target.id },
         ...choiceIcons.map(ic => ({ type: 'role', c: ic.c, role: ic.role }))
-      ]);
+      ], evIdx);
     } else if (r === 'rat') {
-      actor.nightEvents.push({
+      const evIdx = actor.nightEvents.push({
         kind: 'act', actor: actor.id, target: target.id, role: 'rat', camp: actor.camp, result: 'ok'
-      });
-      addPrivateLog(actor, g.day, [
+      }) - 1;
+      queuePrivateLog(actor, g.day, [
         { type: 'role', c: actor.camp, role: 'rat' },
         { type: 'char', id: target.id },
         { type: 'mark', val: 'ok' }
-      ]);
+      ], evIdx);
       nextMorningRats.push({ actor: actor.id, target: target.id, isFool });
     } else if (r === 'look') {
       let visitorIds = [];
@@ -1147,37 +1199,35 @@ function resolveNightPhase() {
           }
         });
       }
-      actor.nightEvents.push({
+      const evIdx = actor.nightEvents.push({
         kind: 'act', actor: actor.id, target: target.id, role: 'look', camp: actor.camp, result: visitorIds.length ? 'ok' : 'fail', visitorIds
-      });
-      addPrivateLog(actor, g.day, [
+      }) - 1;
+      queuePrivateLog(actor, g.day, [
         { type: 'role', c: actor.camp, role: 'look' },
         { type: 'char', id: target.id },
         ...(visitorIds.length
           ? visitorIds.map(vid => ({ type: 'char', id: vid }))
           : [{ type: 'mark', val: 'fail' }])
-      ]);
+      ], evIdx);
     } else if (r === 'trk') {
       let destIds = [];
       if (!isFool && visitedTargets.has(target.id)) {
         destIds = Array.from(visitedTargets.get(target.id));
       }
-      actor.nightEvents.push({
+      const evIdx = actor.nightEvents.push({
         kind: 'act', actor: actor.id, target: target.id, role: 'trk', camp: actor.camp, result: destIds.length ? 'ok' : 'fail', destIds
-      });
-      addPrivateLog(actor, g.day, [
+      }) - 1;
+      queuePrivateLog(actor, g.day, [
         { type: 'role', c: actor.camp, role: 'trk' },
         { type: 'char', id: target.id },
         ...(destIds.length
           ? destIds.map(did => ({ type: 'char', id: did }))
           : [{ type: 'mark', val: 'fail' }])
-      ]);
+      ], evIdx);
     }
   });
 
-  // =========================================================================
-  // 【第6段階】昨晩の新規死亡者リスト作成＆夜のモーション再生フェーズ開始
-  // =========================================================================
+  // 【第6段階】新規死亡者リスト作成＆夜の演出再生フェーズ開始
   const newlyDead = [];
   g.players.forEach(p => {
     if (!p.alive && !p.rev) {
@@ -1210,8 +1260,21 @@ function resolveNightPhase() {
   g.phaseTransition = 'nightAction';
   broadcastState();
 
+  // 各夜のイベント演出が終わるタイミングごとに個人ログを公開して再配信
+  for (let idx = 0; idx < maxEvents; idx++) {
+    scheduleTimer(() => {
+      if (!room.game || room.game.gid !== gid) return;
+      let anyUpdated = false;
+      room.game.players.forEach(pl => {
+        if (flushPrivateLogsUpTo(pl, idx)) anyUpdated = true;
+      });
+      if (anyUpdated) broadcastState();
+    }, (idx + 1) * PHASE_TIMERS.nightEvent - 200);
+  }
+
   scheduleTimer(() => {
     if (!room.game || room.game.gid !== gid) return;
+    flushAllPendingPrivateLogs();
     startMorningSequence(gid);
   }, nightAnimMs);
 }
@@ -1230,7 +1293,6 @@ function startMorningSequence(gid) {
   scheduleTimer(() => {
     if (!room.game || room.game.gid !== gid) return;
 
-    // 死体ズーム演出より前にねずみ演出を実行
     const validRats = (g.pendingMorningRats || []).filter(r => {
       const actor = g.players.find(p => p.id === r.actor);
       const target = g.players.find(p => p.id === r.target);
@@ -1402,6 +1464,9 @@ function buildPlayerView(uid) {
 
   const timeline = [...g.publicLogs, ...mePlayer.privateLogs].sort((a, b) => a.day - b.day);
 
+  // 自分が死亡しているかどうか（殺された場合は次の昼以降、吊られた場合は即座に全員の役職を見られる）
+  const isMeDead = !mePlayer.alive && !(g.phaseTransition === 'nightAction');
+
   const playersView = g.players.map(p => {
     const isMate = (mePlayer.rc === 'r' && p.rc === 'r' && p.id !== mePlayer.id);
     const fullRoleData = g.showResult
@@ -1411,15 +1476,22 @@ function buildPlayerView(uid) {
         }
       : null;
 
+    // 死んだ人目線用の真の役職情報
+    const deadReveal = isMeDead
+      ? { c: p.rc, role: p.trueRole, t: roleLabel(p.rc, p.trueRole) }
+      : null;
+
     return {
       id: p.id,
       name: p.name,
       color: p.color,
       alive: p.alive,
+      exiled: !!p.exiled,
       isAsh: p.isAsh,
       bombed: p.bombed,
       mate: isMate,
       rev: p.rev || null,
+      deadReveal,
       fullRoleData
     };
   });
