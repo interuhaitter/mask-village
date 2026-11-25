@@ -1300,22 +1300,23 @@
     }
 
     /* 夜の行動で帰宅するとき：不透明のまま自分の家の玄関までしっかり歩いて戻る */
+    /* 夜の行動で帰宅するとき：自分の家の玄関まで素早く歩いてドアの中へ吸い込まれて消える */
     .char-node.night-returning {
-      opacity: 1;
-      transform: translate(-50%, -50%) scale(var(--depth-scale, 1));
-      transition: left 3.0s cubic-bezier(0.25, 0.08, 0.35, 0.98),
-        top 3.0s cubic-bezier(0.25, 0.08, 0.35, 0.98),
-        opacity 0.25s ease,
-        transform 0.35s ease !important;
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.26);
+      pointer-events: none;
+      transition: left 2.1s cubic-bezier(0.25, 0.08, 0.35, 0.98) 0s,
+        top 2.1s cubic-bezier(0.25, 0.08, 0.35, 0.98) 0s,
+        opacity 0.35s ease 1.85s,
+        transform 0.35s ease 1.85s !important;
       z-index: 44 !important;
     }
 
     /* 夜の歩行・アクション移動用トランジション（往路） */
     .char-node.night-acting {
       opacity: 1;
-      transform: translate(-50%, -50%) scale(var(--depth-scale, 1));
-      transition: left 2.45s cubic-bezier(0.25, 0.08, 0.38, 0.98),
-        top 2.45s cubic-bezier(0.25, 0.08, 0.38, 0.98),
+      transition: left 2.3s cubic-bezier(0.25, 0.08, 0.38, 0.98),
+        top 2.3s cubic-bezier(0.25, 0.08, 0.38, 0.98),
         opacity 0.3s ease,
         transform 0.4s ease !important;
       z-index: 44 !important;
@@ -1324,11 +1325,10 @@
     /* 家のドアから手前に出てくる短い歩行（ポリス成功時・殺害後の退室時） */
     .char-node.night-step-out {
       opacity: 1;
-      transform: translate(-50%, -50%) scale(var(--depth-scale, 1));
-      transition: left 0.55s cubic-bezier(0.22, 1, 0.36, 1),
-        top 0.55s cubic-bezier(0.22, 1, 0.36, 1),
-        opacity 0.25s ease,
-        transform 0.45s ease !important;
+      transition: left 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+        top 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 0.2s ease,
+        transform 0.3s ease !important;
       z-index: 45 !important;
     }
 
